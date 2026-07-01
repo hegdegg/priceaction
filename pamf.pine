@@ -1,10 +1,10 @@
 //@version=6
-strategy("PA Master Framework", shorttitle="PAMF", overlay=true, pyramiding=0, initial_capital=100000, commission_type=strategy.commission.percent, commission_value=0.02, calc_on_order_fills=true, calc_on_every_tick=true, process_orders_on_close=true, max_boxes_count=500, max_labels_count=500, max_lines_count=500)
+strategy("PA Master Framework v2", shorttitle="PAMF v2", overlay=true, pyramiding=0, initial_capital=100000, commission_type=strategy.commission.percent, commission_value=0.02, calc_on_order_fills=true, calc_on_every_tick=true, process_orders_on_close=true, max_boxes_count=500, max_labels_count=500, max_lines_count=500)
 
 //=============================================================================
-// PA MASTER FRAMEWORK
-// Version : 0.1.0
-// Commit  : 1
+// PA MASTER FRAMEWORK V2
+// Version : 0.2.0
+// Enhanced: Confluence filters, FVG, Liquidity, Volume, Multi-timeframe
 //=============================================================================
 
 //-----------------------------------------------------------------------------
@@ -21,58 +21,115 @@ groupBos = "BOS Engine"
 groupStrategy = "Strategy"
 groupDisplacement = "Displacement Engine"
 groupMarket = "Market State"
+groupFilters = "Confluence Filters"
+groupFVG = "Fair Value Gap"
+groupLiquidity = "Liquidity Zones"
+groupVolume = "Volume Filter"
+groupTimeframe = "Multi-Timeframe"
 
 //-----------------------------------------------------------------------------
-// INPUTS
+// INPUTS - GENERAL & TIMEFRAME
 //-----------------------------------------------------------------------------
 
 showDashboard = input.bool(true, "Show Dashboard", group=groupDashboard)
 debugMode = input.bool(false, "Debug Mode", group=groupDebug)
 
+selectedTimeframe = input.string("15", "Current Timeframe", options=["1", "5", "15", "30", "60", "240", "1D"], group=groupTimeframe)
+showMTFAnalysis = input.bool(true, "Show MTF Analysis", group=groupTimeframe)
+
+//-----------------------------------------------------------------------------
+// INPUTS - ATR
+//-----------------------------------------------------------------------------
+
 atrLength = input.int(14, "ATR Length", minval=1, group=groupAtr)
 atrSmooth = input.string("RMA", "ATR Smoothing", options=["RMA", "SMA", "EMA", "WMA"], group=groupAtr)
+
+//-----------------------------------------------------------------------------
+// INPUTS - SWING & STRUCTURE
+//-----------------------------------------------------------------------------
 
 swingLength = input.int(5, "Swing Length", minval=2, maxval=20, group=groupSwing)
 showSwings = input.bool(true, "Show Swing Labels", group=groupSwing)
 
 
-bosBreakMethod = input.string(    "Close",    "Break Confirmation",    options=["Close", "Wick"],    group=groupBos)
+//-----------------------------------------------------------------------------
+// INPUTS - BOS ENGINE
+//-----------------------------------------------------------------------------
+
+bosBreakMethod = input.string("Close", "Break Confirmation", options=["Close", "Wick"], group=groupBos)
 bosAtrFilter = input.bool(true, "Require ATR Impulse", group=groupBos)
+requireHigherLowInUptrend = input.bool(true, "HL in Uptrend", group=groupBos)
+requireLowerHighInDowntrend = input.bool(true, "LH in Downtrend", group=groupBos)
+
+//-----------------------------------------------------------------------------
+// INPUTS - STRATEGY
+//-----------------------------------------------------------------------------
+
 enableStrategy = input.bool(true, "Enable Strategy", group=groupStrategy)
 slAtrMultiplier = input.float(1.0, "Stop Loss ATR", minval=0.25, step=0.25, group=groupStrategy)
 tpAtrMultiplier = input.float(2.0, "Take Profit ATR", minval=0.5, step=0.25, group=groupStrategy)
+minRiskReward = input.float(1.5, "Min Risk:Reward Ratio", minval=0.5, step=0.1, group=groupStrategy)
 
 enableLong = input.bool(true, "Enable Long", group=groupEntry)
 enableShort = input.bool(true, "Enable Short", group=groupEntry)
 
 useImpulseFilter = input.bool(true, "Require Impulse Candle", group=groupEntry)
 
+//-----------------------------------------------------------------------------
+// INPUTS - ORDER BLOCKS
+//-----------------------------------------------------------------------------
+
 showOrderBlocks = input.bool(true, "Show Order Blocks", group=groupOB)
-maxOrderBlocks = input.int(     20,     "Maximum Blocks",     minval=5,     maxval=100,     group=groupOB)
+maxOrderBlocks = input.int(20, "Maximum Blocks", minval=5, maxval=100, group=groupOB)
+obMitigationBuffer = input.float(0.5, "Mitigation Buffer %", minval=0.0, step=0.1, group=groupOB)
 
-displacementATR = input.float(
-     1.2,
-     "Minimum Body ATR",
-     step=0.1,
-     group=groupDisplacement)
+//-----------------------------------------------------------------------------
+// INPUTS - DISPLACEMENT
+//-----------------------------------------------------------------------------
 
-requireCloseNearHigh = input.bool(
-     true,
-     "Bull Close Near High",
-     group=groupDisplacement)
+displacementATR = input.float(1.2, "Minimum Body ATR", step=0.1, group=groupDisplacement)
+requireCloseNearHigh = input.bool(true, "Bull Close Near High", group=groupDisplacement)
+requireCloseNearLow = input.bool(true, "Bear Close Near Low", group=groupDisplacement)
 
-requireCloseNearLow = input.bool(
-     true,
-     "Bear Close Near Low",
-     group=groupDisplacement)
+//-----------------------------------------------------------------------------
+// INPUTS - MARKET STATE
+//-----------------------------------------------------------------------------
 
 showMarketState = input.bool(true, "Show Market State", group=groupMarket)
+pullbackAtr = input.float(1.0, "Pullback ATR", step=0.25, group=groupMarket)
 
-pullbackAtr = input.float(
-     1.0,
-     "Pullback ATR",
-     step=0.25,
-     group=groupMarket)
+//-----------------------------------------------------------------------------
+// INPUTS - CONFLUENCE FILTERS
+//-----------------------------------------------------------------------------
+
+useConfluenceScore = input.bool(true, "Enable Confluence Scoring", group=groupFilters)
+minConfluenceScore = input.int(2, "Min Confluence Score", minval=1, maxval=5, group=groupFilters)
+requireTrendAlignment = input.bool(true, "Require Trend Alignment", group=groupFilters)
+requireOBMitigation = input.bool(false, "Require OB Mitigation", group=groupFilters)
+cooldownBars = input.int(3, "Cooldown Bars After Entry", minval=1, maxval=20, group=groupFilters)
+
+//-----------------------------------------------------------------------------
+// INPUTS - FVG (Fair Value Gap)
+//-----------------------------------------------------------------------------
+
+detectFVG = input.bool(true, "Detect Fair Value Gaps", group=groupFVG)
+showFVG = input.bool(true, "Show FVG Zones", group=groupFVG)
+fvgConfirmBars = input.int(2, "FVG Confirmation Bars", minval=1, maxval=5, group=groupFVG)
+
+//-----------------------------------------------------------------------------
+// INPUTS - LIQUIDITY
+//-----------------------------------------------------------------------------
+
+detectLiquidity = input.bool(true, "Detect Liquidity Zones", group=groupLiquidity)
+showLiquidity = input.bool(true, "Show Liquidity Levels", group=groupLiquidity)
+liquidityLookback = input.int(20, "Liquidity Lookback", minval=5, maxval=50, group=groupLiquidity)
+
+//-----------------------------------------------------------------------------
+// INPUTS - VOLUME
+//-----------------------------------------------------------------------------
+
+requireVolumeConfirm = input.bool(true, "Require Volume Confirmation", group=groupVolume)
+volumeMultiplier = input.float(1.3, "Volume Confirmation Multiplier", minval=1.0, step=0.1, group=groupVolume)
 
 //-----------------------------------------------------------------------------
 // CONSTANTS
@@ -182,6 +239,68 @@ paImpulseBull = paBullish and paBody >= paHalfAtr
 paImpulseBear = paBearish and paBody >= paHalfAtr
 
 //-----------------------------------------------------------------------------
+// VOLUME ENGINE
+//-----------------------------------------------------------------------------
+avgVolume = ta.sma(volume, 20)
+volumeConfirm = volume >= avgVolume * volumeMultiplier
+lowVolume = volume < avgVolume * 0.7
+
+//-----------------------------------------------------------------------------
+// FAIR VALUE GAP ENGINE
+//-----------------------------------------------------------------------------
+bullFVG = false
+bearFVG = false
+bullFVGTop = 0.0
+bullFVGBottom = 0.0
+bearFVGTop = 0.0
+bearFVGBottom = 0.0
+
+if detectFVG
+    // Bull FVG: High of candle 2 < Low of candle 0
+    if high[2] < low[0] and paBullish and paBullish[1]
+        bullFVG := true
+        bullFVGBottom := high[2]
+        bullFVGTop := low[0]
+
+    // Bear FVG: Low of candle 2 > High of candle 0
+    if low[2] > high[0] and paBearish and paBearish[1]
+        bearFVG := true
+        bearFVGTop := low[2]
+        bearFVGBottom := high[0]
+
+//-----------------------------------------------------------------------------
+// LIQUIDITY ZONES ENGINE
+//-----------------------------------------------------------------------------
+recentHigh = ta.highest(high, liquidityLookback)
+recentLow = ta.lowest(low, liquidityLookback)
+lastSwingHigh = paSwingHigh
+lastSwingLow = paSwingLow
+
+//-----------------------------------------------------------------------------
+// PREMIUM/DISCOUNT ZONE ENGINE
+//-----------------------------------------------------------------------------
+ema20 = ta.ema(close, 20)
+inPremiumZone = close > ema20 * 1.02
+inDiscountZone = close < ema20 * 0.98
+
+//-----------------------------------------------------------------------------
+// 3-BAR PATTERN ENGINE
+//-----------------------------------------------------------------------------
+// Inside Bar
+insideBar = high <= high[1] and low >= low[1]
+
+// Outside Bar
+outsideBar = high > high[1] and low < low[1]
+
+// Engulfing
+bullEngulf = paBullish and paBearish[1] and high > high[1] and low < low[1]
+bearEngulf = paBearish and paBullish[1] and low < low[1] and high > high[1]
+
+// Pin Bar (long wick, small body)
+bullPin = paBullish and paLowerWick > paBody * 2 and paUpperWick < paBody * 0.5
+bearPin = paBearish and paUpperWick > paBody * 2 and paLowerWick < paBody * 0.5
+
+//-----------------------------------------------------------------------------
 // SWING ENGINE
 //-----------------------------------------------------------------------------
 paBullBos := false
@@ -245,6 +364,17 @@ bullValid = bosAtrFilter ? bullBreak and paImpulseBull : bullBreak
 bearValid = bosAtrFilter ? bearBreak and paImpulseBear : bearBreak
 
 //-----------------------------------------------------------------------------
+// DISPLACEMENT ENGINE (MOVED UP FOR SCOPE)
+//-----------------------------------------------------------------------------
+bullBodyOK = paBody >= paAtr * displacementATR
+bullCloseOK = requireCloseNearHigh ? close >= high - paRange * 0.20 : true
+paBullDisplacement = paBullish and bullBodyOK and bullCloseOK
+
+bearBodyOK = paBody >= paAtr * displacementATR
+bearCloseOK = requireCloseNearLow ? close <= low + paRange * 0.20 : true
+paBearDisplacement = paBearish and bearBodyOK and bearCloseOK
+
+//-----------------------------------------------------------------------------
 // BOS ENGINE
 //-----------------------------------------------------------------------------
 if not na(paMarketState)
@@ -258,8 +388,6 @@ if not na(paMarketState)
 
         paMarketState := MARKET_BULL
 
-        paMarketState := na
-
 if not na(paProtectedLow)
 
     if bearValid
@@ -270,8 +398,6 @@ if not na(paProtectedLow)
             paBearChoch := true
 
         paMarketState := MARKET_BEAR
-
-        paProtectedLow := na
 
 
 //-----------------------------------------------------------------------------
@@ -420,38 +546,111 @@ if paMarketState == MARKET_BEAR_PULLBACK
 
 
 //-----------------------------------------------------------------------------
+// COOLDOWN ENGINE
+//-----------------------------------------------------------------------------
+var int lastLongBar = 0
+var int lastShortBar = 0
+longCooldown = (bar_index - lastLongBar) < cooldownBars
+shortCooldown = (bar_index - lastShortBar) < cooldownBars
+
+//-----------------------------------------------------------------------------
+// CONFLUENCE SCORING ENGINE
+//-----------------------------------------------------------------------------
+longConfluence = 0
+shortConfluence = 0
+
+// BOS Signal
+if paBullBos
+    longConfluence += 1
+if paBearBos
+    shortConfluence += 1
+
+// Displacement Signal
+if paBullDisplacement
+    longConfluence += 1
+if paBearDisplacement
+    shortConfluence += 1
+
+// Impulse Candle
+if paImpulseBull
+    longConfluence += 1
+if paImpulseBear
+    shortConfluence += 1
+
+// Volume Confirmation
+if volumeConfirm
+    longConfluence += requireVolumeConfirm ? 1 : 0
+    shortConfluence += requireVolumeConfirm ? 1 : 0
+
+// FVG Confirmation
+if bullFVG
+    longConfluence += detectFVG ? 1 : 0
+if bearFVG
+    shortConfluence += detectFVG ? 1 : 0
+
+// Pin Bar Pattern
+if bullPin
+    longConfluence += 1
+if bearPin
+    shortConfluence += 1
+
+// Market Trend Alignment
+bullTrendAligned = paMarketState == MARKET_BULL or paMarketState == MARKET_BULL_PULLBACK
+bearTrendAligned = paMarketState == MARKET_BEAR or paMarketState == MARKET_BEAR_PULLBACK
+
+if bullTrendAligned
+    longConfluence += requireTrendAlignment ? 1 : 0
+if bearTrendAligned
+    shortConfluence += requireTrendAlignment ? 1 : 0
+
+// Order Block Present
+bullOBPresent = not na(bullOB)
+bearOBPresent = not na(bearOB)
+
+if bullOBPresent
+    longConfluence += 0.5
+if bearOBPresent
+    shortConfluence += 0.5
+
+//-----------------------------------------------------------------------------
 // ENTRY ENGINE
 //-----------------------------------------------------------------------------
 paLongSignal := false
 paShortSignal := false
-
 paEntryReason := ""
 
-if enableLong
+// Risk/Reward Validation
+longRR = (longTarget - strategy.position_avg_price) / (strategy.position_avg_price - longStop) if not na(longTarget) and not na(longStop) else 0
+shortRR = (strategy.position_avg_price - shortTarget) / (shortStop - strategy.position_avg_price) if not na(shortTarget) and not na(shortStop) else 0
 
-    if paBullBos
+validLongRR = longRR >= minRiskReward
+validShortRR = shortRR >= minRiskReward
 
-        bool valid = true
+if enableLong and not longCooldown
 
-        if useImpulseFilter
-            valid := valid and paImpulseBull
+    bosValid = paBullBos
+    impulseValid = useImpulseFilter ? paImpulseBull : true
+    trendValid = requireTrendAlignment ? bullTrendAligned : true
+    confluenceValid = useConfluenceScore ? longConfluence >= minConfluenceScore : true
+    volumeValid = requireVolumeConfirm ? volumeConfirm : true
 
-        if valid
-            paLongSignal := true
-            paEntryReason := "Bull BOS"
+    if bosValid and impulseValid and trendValid and confluenceValid and volumeValid
+        paLongSignal := true
+        paEntryReason := "Bull Confluence (" + str.tostring(longConfluence, "#") + ")"
+        lastLongBar := bar_index
 
-if enableShort
+if enableShort and not shortCooldown
 
-    if paBearBos
+    bosValid = paBearBos
+    impulseValid = useImpulseFilter ? paImpulseBear : true
+    trendValid = requireTrendAlignment ? bearTrendAligned : true
+    confluenceValid = useConfluenceScore ? shortConfluence >= minConfluenceScore : true
+    volumeValid = requireVolumeConfirm ? volumeConfirm : true
 
-        bool valid = true
-
-        if useImpulseFilter
-            valid := valid and paImpulseBear
-
-        if valid
-            paShortSignal := true
-            paEntryReason := "Bear BOS"
+    if bosValid and impulseValid and trendValid and confluenceValid and volumeValid
+        paShortSignal := true
+        paEntryReason := "Bear Confluence (" + str.tostring(shortConfluence, "#") + ")"
+        lastShortBar := bar_index
 
 //-----------------------------------------------------------------------------
 // LAST OPPOSITE CANDLE
@@ -521,70 +720,12 @@ if not na(bearOB)
         bearOB := na
 
 //-----------------------------------------------------------------------------
-// ORDER BLOCK DETECTION
-//-----------------------------------------------------------------------------
-
-if paBullDisplacement
-
-    int found = na
-
-    for i = 1 to 6
-
-        if close[i] < open[i]
-
-            found := i
-            break
-
-    if not na(found)
-
-        bullOBTop := open[found]
-        bullOBBottom := low[found]
-
-        if not na(bullOB)
-            box.delete(bullOB)
-
-        bullOB := box.new(
-             left = bar_index - found,
-             right = bar_index + 100,
-             top = bullOBTop,
-             bottom = bullOBBottom,
-             bgcolor = color.new(color.green,85),
-             border_color = color.green)
-
-if paBearDisplacement
-
-    int found = na
-
-    for i = 1 to 6
-
-        if close[i] > open[i]
-
-            found := i
-            break
-
-    if not na(found)
-
-        bearOBTop := high[found]
-        bearOBBottom := open[found]
-
-        if not na(bearOB)
-            box.delete(bearOB)
-
-        bearOB := box.new(
-             left = bar_index - found,
-             right = bar_index + 100,
-             top = bearOBTop,
-             bottom = bearOBBottom,
-             bgcolor = color.new(color.red,85),
-             border_color = color.red)
-
-//-----------------------------------------------------------------------------
 // ORDER BLOCK MITIGATION
 //-----------------------------------------------------------------------------
 
 if not na(bullOB)
 
-    if low <= bullOBTop
+    if low <= bullOBLow
 
         box.set_right(bullOB, bar_index)
 
@@ -592,30 +733,13 @@ if not na(bullOB)
 
 if not na(bearOB)
 
-    if high >= bearOBBottom
+    if high >= bearOBHigh
 
         box.set_right(bearOB, bar_index)
 
         bearOB := na
 
         
-//-----------------------------------------------------------------------------
-// DISPLACEMENT ENGINE
-//-----------------------------------------------------------------------------
-bullBodyOK = paBody >= paAtr * displacementATR
-
-bullCloseOK = close >= high - paRange * 0.20
-
-paBullDisplacement =    paBullish and    bullBodyOK and    bullCloseOK
-
-bearBodyOK = paBody >= paAtr * displacementATR
-
-bearCloseOK = close <= low + paRange * 0.20
-
-paBearDisplacement =    paBearish and   bearBodyOK and    bearCloseOK
-
-
-
 //-----------------------------------------------------------------------------
 // STRATEGY CONDITIONS
 //-----------------------------------------------------------------------------
@@ -660,13 +784,25 @@ tableText = color.white
 
 
 //-----------------------------------------------------------------------------
+// MULTI-TIMEFRAME ANALYSIS
+//-----------------------------------------------------------------------------
+
+mtf1 = request.security(syminfo.tickerid, "5", close)
+mtf2 = request.security(syminfo.tickerid, "60", close)
+mtf3 = request.security(syminfo.tickerid, "D", close)
+
+mtf1Trend = request.security(syminfo.tickerid, "5", paMarketState)
+mtf2Trend = request.security(syminfo.tickerid, "60", paMarketState)
+mtf3Trend = request.security(syminfo.tickerid, "D", paMarketState)
+
+//-----------------------------------------------------------------------------
 // DASHBOARD
 //-----------------------------------------------------------------------------
 
 if showDashboard
 
     if na(dash)
-        dash := table.new(position.top_right, 2, 15)
+        dash := table.new(position.top_right, 2, 20)
 
 
     stateText =
@@ -692,10 +828,10 @@ if showDashboard
     if barstate.islastconfirmedhistory or barstate.isrealtime
 
         // Header
-        table.cell(dash,0,0,"PA Master",bgcolor=tableHeader,text_color=tableText)
-        table.cell(dash,1,0,"v0.1.0",bgcolor=tableHeader,text_color=tableText)
+        table.cell(dash,0,0,"PA Master v2",bgcolor=tableHeader,text_color=tableText)
+        table.cell(dash,1,0,"15m",bgcolor=tableHeader,text_color=tableText)
 
-        // Trend
+        // === MARKET STATE ===
         table.cell(dash,0,1,"State",bgcolor=tableLabel,text_color=tableText)
         table.cell(dash,1,1,stateText,bgcolor=stateColor,text_color=tableText)
 
@@ -703,70 +839,140 @@ if showDashboard
         table.cell(dash,0,2,"Structure",bgcolor=tableLabel,text_color=tableText)
         table.cell(dash,1,2,structureText,bgcolor=structureColor,text_color=tableText)
 
-        // Entry
-        table.cell(dash,0,3,"Entry",bgcolor=tableLabel,text_color=tableText)
+        // === SIGNALS & CONFLUENCE ===
+        table.cell(dash,0,3,"Entry Signal",bgcolor=tableLabel,text_color=tableText)
         table.cell(dash,1,3,entryText,bgcolor=entryColor,text_color=tableText)
 
-        // Candle
-        table.cell(dash,0,4,"Candle",bgcolor=tableLabel,text_color=tableText)
-        table.cell(dash,1,4,paBullish ? "Bull" : "Bear",bgcolor=paBullish ? tableBull : tableBear,text_color=tableText)
+        // Confluence Score
+        table.cell(dash,0,4,"Confluence",bgcolor=tableLabel,text_color=tableText)
+        confText = paLongSignal ? str.tostring(longConfluence, "#") + "L" : paShortSignal ? str.tostring(shortConfluence, "#") + "S" : "-"
+        confColor = (longConfluence >= minConfluenceScore or shortConfluence >= minConfluenceScore) ? color.green : tableNeutral
+        table.cell(dash,1,4,confText,bgcolor=confColor,text_color=tableText)
 
-        // ATR
-        table.cell(dash,0,5,"ATR",bgcolor=tableLabel,text_color=tableText)
-        table.cell(dash,1,5,str.tostring(paAtr,"#.##"),bgcolor=tableValue,text_color=tableText)
+        // === CANDLE ANALYSIS ===
+        table.cell(dash,0,5,"Candle",bgcolor=tableLabel,text_color=tableText)
+        table.cell(dash,1,5,paBullish ? "Bull" : "Bear",bgcolor=paBullish ? tableBull : tableBear,text_color=tableText)
 
-        // Body
-        table.cell(dash,0,6,"Body",bgcolor=tableLabel,text_color=tableText)
-        table.cell(dash,1,6,str.tostring(paBody,"#.##"),bgcolor=tableValue,text_color=tableText)
+        // Pattern
+        table.cell(dash,0,6,"Pattern",bgcolor=tableLabel,text_color=tableText)
+        patternText = bullPin ? "Bull Pin" : bearPin ? "Bear Pin" : bullEngulf ? "Bull Engulf" : bearEngulf ? "Bear Engulf" : insideBar ? "Inside" : outsideBar ? "Outside" : "-"
+        table.cell(dash,1,6,patternText,bgcolor=tableValue,text_color=tableText)
 
-        // Range
-        table.cell(dash,0,7,"Range",bgcolor=tableLabel,text_color=tableText)
-        table.cell(dash,1,7,str.tostring(paRange,"#.##"),bgcolor=tableValue,text_color=tableText)
+        // === VOLATILITY & VOLUME ===
+        table.cell(dash,0,7,"ATR",bgcolor=tableLabel,text_color=tableText)
+        table.cell(dash,1,7,str.tostring(paAtr,"#.##"),bgcolor=tableValue,text_color=tableText)
 
-        // Impulse
-        table.cell(dash,0,8,"Impulse",bgcolor=tableLabel,text_color=tableText)
-        table.cell(dash,1,8,paImpulseBull ? "Bull" : paImpulseBear ? "Bear" : "No",bgcolor=paImpulseBull ? tableBull : paImpulseBear ? tableBear : tableNeutral,text_color=tableText)
+        // Volume
+        table.cell(dash,0,8,"Volume",bgcolor=tableLabel,text_color=tableText)
+        volText = volumeConfirm ? "High" : lowVolume ? "Low" : "Avg"
+        volColor = volumeConfirm ? color.green : lowVolume ? color.red : tableNeutral
+        table.cell(dash,1,8,volText,bgcolor=volColor,text_color=tableText)
 
-        // Large Body
-        table.cell(dash,0,9,"Large Body",bgcolor=tableLabel,text_color=tableText)
-        table.cell(dash,1,9,paLargeBody ? "Yes" : "No",bgcolor=paLargeBody ? tableBull : tableNeutral,text_color=tableText)
+        // === PRICE ACTION ===
+        table.cell(dash,0,9,"Impulse",bgcolor=tableLabel,text_color=tableText)
+        table.cell(dash,1,9,paImpulseBull ? "Bull" : paImpulseBear ? "Bear" : "No",bgcolor=paImpulseBull ? tableBull : paImpulseBear ? tableBear : tableNeutral,text_color=tableText)
 
-        // Order Block
-        table.cell(dash,0,10,"Order Block",bgcolor=tableLabel,text_color=tableText)
-        table.cell(dash,1,10,"-",bgcolor=tableValue,text_color=tableText)
+        // Displacement
+        table.cell(dash,0,10,"Displacement",bgcolor=tableLabel,text_color=tableText)
+        table.cell(dash,1,10,paBullDisplacement ? "Bull" : paBearDisplacement ? "Bear" : "No",bgcolor=paBullDisplacement ? tableBull : paBearDisplacement ? tableBear : tableNeutral,text_color=tableText)
 
         // FVG
         table.cell(dash,0,11,"FVG",bgcolor=tableLabel,text_color=tableText)
-        table.cell(dash,1,11,"-",bgcolor=tableValue,text_color=tableText)
+        fvgText = bullFVG ? "Bull" : bearFVG ? "Bear" : "No"
+        table.cell(dash,1,11,fvgText,bgcolor=(bullFVG or bearFVG) ? tableBull : tableNeutral,text_color=tableText)
 
-        // Liquidity
-        table.cell(dash,0,12,"Liquidity",bgcolor=tableLabel,text_color=tableText)
-        table.cell(dash,1,12,"-",bgcolor=tableValue,text_color=tableText)
+        // Order Block
+        table.cell(dash,0,12,"Order Block",bgcolor=tableLabel,text_color=tableText)
+        obStatus = not na(bullOB) ? "Bull" : not na(bearOB) ? "Bear" : "None"
+        table.cell(dash,1,12,obStatus,bgcolor=not na(bullOB) ? tableBull : not na(bearOB) ? tableBear : tableNeutral,text_color=tableText)
 
-        // Position
-        table.cell(dash,0,13,"Position",bgcolor=tableLabel,text_color=tableText)
-        table.cell(dash,1,13,str.tostring(strategy.position_size),bgcolor=tableValue,text_color=tableText)
+        // === RISK MANAGEMENT ===
+        table.cell(dash,0,13,"Stop Loss",bgcolor=tableLabel,text_color=tableText)
+        slText = strategy.position_size > 0 ? str.tostring(longStop, "#.##") : strategy.position_size < 0 ? str.tostring(shortStop, "#.##") : "-"
+        table.cell(dash,1,13,slText,bgcolor=tableValue,text_color=tableText)
+
+        // Take Profit
+        table.cell(dash,0,14,"Take Profit",bgcolor=tableLabel,text_color=tableText)
+        tpText = strategy.position_size > 0 ? str.tostring(longTarget, "#.##") : strategy.position_size < 0 ? str.tostring(shortTarget, "#.##") : "-"
+        table.cell(dash,1,14,tpText,bgcolor=tableValue,text_color=tableText)
+
+        // R:R Ratio
+        table.cell(dash,0,15,"R:R Ratio",bgcolor=tableLabel,text_color=tableText)
+        rrText = strategy.position_size > 0 ? str.tostring(longRR, "#.##") : strategy.position_size < 0 ? str.tostring(shortRR, "#.##") : "-"
+        table.cell(dash,1,15,rrText,bgcolor=tableValue,text_color=tableText)
+
+        // === POSITION ===
+        table.cell(dash,0,16,"Position",bgcolor=tableLabel,text_color=tableText)
+        table.cell(dash,1,16,str.tostring(strategy.position_size),bgcolor=tableValue,text_color=tableText)
 
         // PnL
-        table.cell(dash,0,14,"Net PnL",bgcolor=tableLabel,text_color=tableText)
-        table.cell(dash,1,14,str.tostring(strategy.netprofit,"#.##"),bgcolor=strategy.netprofit >= 0 ? tableBull : tableBear,text_color=tableText)
+        table.cell(dash,0,17,"Net PnL",bgcolor=tableLabel,text_color=tableText)
+        table.cell(dash,1,17,str.tostring(strategy.netprofit,"#.##"),bgcolor=strategy.netprofit >= 0 ? tableBull : tableBear,text_color=tableText)
+
+        // === TIMEFRAME ===
+        table.cell(dash,0,18,"Timeframe",bgcolor=tableLabel,text_color=tableText)
+        table.cell(dash,1,18,selectedTimeframe + "m",bgcolor=tableValue,text_color=tableText)
+
+        // Win Rate
+        winRate = strategy.wintrades + strategy.losstrades > 0 ? (strategy.wintrades / (strategy.wintrades + strategy.losstrades)) * 100 : 0
+        table.cell(dash,0,19,"Win Rate",bgcolor=tableLabel,text_color=tableText)
+        table.cell(dash,1,19,str.tostring(winRate, "#.##") + "%",bgcolor=tableValue,text_color=tableText)
 
 //-----------------------------------------------------------------------------
-// DEBUG PLOTS
+// VISUALIZATIONS
 //-----------------------------------------------------------------------------
 
+// Swing Highs and Lows
+plotshape(showSwings and paNewSwingHigh, title="Swing High", style=shape.triangledown, location=location.abovebar, offset=-swingLength, color=color.blue, size=size.small, text="SH")
+plotshape(showSwings and paNewSwingLow, title="Swing Low", style=shape.triangleup, location=location.belowbar, offset=-swingLength, color=color.purple, size=size.small, text="SL")
+
+// Structure Markers
 plotshape(showSwings and paHH, title="HH", style=shape.triangledown, location=location.abovebar, offset=-swingLength, color=color.lime, size=size.tiny, text="HH")
 plotshape(showSwings and paLH, title="LH", style=shape.triangledown, location=location.abovebar, offset=-swingLength, color=color.red, size=size.tiny, text="LH")
 plotshape(showSwings and paHL, title="HL", style=shape.triangleup, location=location.belowbar, offset=-swingLength, color=color.lime, size=size.tiny, text="HL")
 plotshape(showSwings and paLL, title="LL", style=shape.triangleup, location=location.belowbar, offset=-swingLength, color=color.red, size=size.tiny, text="LL")
 
-plotshape(paBullBos, title="Bull BOS", style=shape.labelup, location=location.belowbar, color=color.green, text="BOS")
-plotshape(paBearBos, title="Bear BOS", style=shape.labeldown, location=location.abovebar, color=color.red, text="BOS")
+// BOS and CHoCH Markers
+plotshape(paBullBos, title="Bull BOS", style=shape.labelup, location=location.belowbar, color=color.green, text="BOS", size=size.small)
+plotshape(paBearBos, title="Bear BOS", style=shape.labeldown, location=location.abovebar, color=color.red, text="BOS", size=size.small)
 plotshape(paBullChoch, title="Bull CHoCH", style=shape.circle, location=location.belowbar, color=color.blue, size=size.tiny)
 plotshape(paBearChoch, title="Bear CHoCH", style=shape.circle, location=location.abovebar, color=color.orange, size=size.tiny)
 
+// Market Structure Lines
 plot(paMarketState, "Protected High", color=color.orange, linewidth=2, style=plot.style_stepline)
 plot(paProtectedLow, "Protected Low", color=color.aqua, linewidth=2, style=plot.style_stepline)
 
-plotshape(    paBullDisplacement,    style=shape.square,    color=color.green,    size=size.tiny)
-plotshape(    paBearDisplacement,    style=shape.square,    color=color.red,    size=size.tiny)
+// Displacement Markers
+plotshape(paBullDisplacement, style=shape.square, color=color.green, size=size.tiny, title="Bull Displacement")
+plotshape(paBearDisplacement, style=shape.square, color=color.red, size=size.tiny, title="Bear Displacement")
+
+// FVG Zones
+if showFVG and detectFVG
+    if bullFVG
+        bullFVGBox = box.new(bar_index - 1, bullFVGTop, bar_index + 5, bullFVGBottom, bgcolor=color.new(color.green, 90), border_color=na)
+    if bearFVG
+        bearFVGBox = box.new(bar_index - 1, bearFVGTop, bar_index + 5, bearFVGBottom, bgcolor=color.new(color.red, 90), border_color=na)
+
+// Liquidity Zones
+if showLiquidity and detectLiquidity
+    plot(recentHigh, title="Recent High", color=color.new(color.blue, 50), linewidth=1, style=plot.style_circles)
+    plot(recentLow, title="Recent Low", color=color.new(color.orange, 50), linewidth=1, style=plot.style_circles)
+
+// 3-Bar Patterns
+plotshape(bullPin, style=shape.triangleup, color=color.lime, size=size.small, title="Bull Pin", location=location.belowbar)
+plotshape(bearPin, style=shape.triangledown, color=color.red, size=size.small, title="Bear Pin", location=location.abovebar)
+
+// Entry Signals (with Confluence Score)
+plotshape(paLongSignal, title="Long Entry", style=shape.labelup, location=location.belowbar, color=color.new(color.green, 20), textcolor=color.white, size=size.large, text="LONG")
+plotshape(paShortSignal, title="Short Entry", style=shape.labeldown, location=location.abovebar, color=color.new(color.red, 20), textcolor=color.white, size=size.large, text="SHORT")
+
+// Stop Loss and Take Profit
+plotLongSL = strategy.position_size > 0 ? longStop : na
+plotLongTP = strategy.position_size > 0 ? longTarget : na
+plotShortSL = strategy.position_size < 0 ? shortStop : na
+plotShortTP = strategy.position_size < 0 ? shortTarget : na
+
+plot(plotLongSL, title="Long Stop Loss", color=color.red, linewidth=2, style=plot.style_linebr)
+plot(plotLongTP, title="Long Take Profit", color=color.green, linewidth=2, style=plot.style_linebr)
+plot(plotShortSL, title="Short Stop Loss", color=color.red, linewidth=2, style=plot.style_linebr)
+plot(plotShortTP, title="Short Take Profit", color=color.green, linewidth=2, style=plot.style_linebr)
