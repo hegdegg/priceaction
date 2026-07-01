@@ -38,6 +38,10 @@ TREND_BULL = 1
 TREND_BEAR = -1
 TREND_RANGE = 0
 
+BOS_NONE = 0
+BOS_BULL = 1
+BOS_BEAR = -1
+
 //-----------------------------------------------------------------------------
 // STATE
 //-----------------------------------------------------------------------------
@@ -52,6 +56,26 @@ var int paSwingLowBar = na
 
 var bool paNewSwingHigh = false
 var bool paNewSwingLow = false
+
+var float paPrevSwingHigh = na
+var float paPrevSwingLow = na
+
+var bool paHH = false
+var bool paLH = false
+var bool paHL = false
+var bool paLL = false
+
+var bool paBullBos = false
+var bool paBearBos = false
+
+var bool paBullChoch = false
+var bool paBearChoch = false
+
+var float paLastHH = na
+var float paLastLL = na
+
+var int paMarketTrend = TREND_RANGE
+
 
 ///-----------------------------------------------------------------------------
 // CANDLE ENGINE
@@ -81,15 +105,6 @@ paBearPower = paRange > 0 ? paBearBody / paRange : 0.0
 paMid = (paHigh + paLow) * 0.5
 paTypical = (paHigh + paLow + paClose) / 3.0
 
-bodySize = math.abs(close - open)
-candleRange = high - low
-upperWick = high - math.max(open, close)
-lowerWick = math.min(open, close) - low
-
-isBullish = close > open
-isBearish = close < open
-isDoji = candleRange > 0 ? bodySize <= candleRange * 0.10 : false
-
 //-----------------------------------------------------------------------------
 // ATR ENGINE
 //-----------------------------------------------------------------------------
@@ -110,6 +125,17 @@ paImpulseBear = paBearish and paBody >= paHalfAtr
 // SWING ENGINE
 //-----------------------------------------------------------------------------
 
+paBullBos := false
+paBearBos := false
+
+paBullChoch := false
+paBearChoch := false
+
+paHH := false
+paLH := false
+paHL := false
+paLL := false
+
 ph = ta.pivothigh(high, swingLength, swingLength)
 pl = ta.pivotlow(low, swingLength, swingLength)
 
@@ -117,12 +143,60 @@ paNewSwingHigh := not na(ph)
 paNewSwingLow := not na(pl)
 
 if paNewSwingHigh
+
+    if not na(paPrevSwingHigh)
+        paHH := ph > paPrevSwingHigh
+        paLH := ph < paPrevSwingHigh
+
+    paPrevSwingHigh := ph
     paSwingHigh := ph
     paSwingHighBar := bar_index - swingLength
 
+    if paHH
+
+        if na(paLastHH)
+            paLastHH := ph
+        else
+            paLastHH := math.max(paLastHH, ph)
+
 if paNewSwingLow
+
+    if not na(paPrevSwingLow)
+        paHL := pl > paPrevSwingLow
+        paLL := pl < paPrevSwingLow
+
+    paPrevSwingLow := pl
     paSwingLow := pl
     paSwingLowBar := bar_index - swingLength
+
+    if paLL
+
+        if na(paLastLL)
+            paLastLL := pl
+        else
+            paLastLL := math.min(paLastLL, pl)
+
+//-----------------------------------------------------------------------------
+// BOS ENGINE
+//-----------------------------------------------------------------------------
+
+if not na(paLastHH) and ta.crossover(close, paLastHH)
+
+    paBullBos := true
+
+    if paMarketTrend == TREND_BEAR
+        paBullChoch := true
+
+    paMarketTrend := TREND_BULL
+
+if not na(paLastLL) and ta.crossunder(close, paLastLL)
+
+    paBearBos := true
+
+    if paMarketTrend == TREND_BULL
+        paBearChoch := true
+
+    paMarketTrend := TREND_BEAR
 
 //-----------------------------------------------------------------------------
 // DASHBOARD
@@ -133,7 +207,7 @@ if showDashboard
     if na(dash)
         dash := table.new(position.top_right, 2, 10)
 
-    trendText = "Range"
+    trendText = paMarketTrend == TREND_BULL ? "Bull" : paMarketTrend == TREND_BEAR ? "Bear" : "Range"
 
     if trendState == TREND_BULL
         trendText := "Bull"
@@ -188,9 +262,15 @@ plot(debugMode ? paRange : na, "Range")
 plot(debugMode ? paAtr : na, "ATR")
 plot(debugMode ? paHalfAtr : na, "Half ATR")
 
-plot(bodyPlot, title="Body Size")
-plot(rangePlot, title="Candle Range")
+plotshape(showSwings and paHH, title="HH", style=shape.triangledown, location=location.abovebar, offset=-swingLength, color=color.lime, size=size.tiny, text="HH")
+plotshape(showSwings and paLH, title="LH", style=shape.triangledown, location=location.abovebar, offset=-swingLength, color=color.red, size=size.tiny, text="LH")
+plotshape(showSwings and paHL, title="HL", style=shape.triangleup, location=location.belowbar, offset=-swingLength, color=color.lime, size=size.tiny, text="HL")
+plotshape(showSwings and paLL, title="LL", style=shape.triangleup, location=location.belowbar, offset=-swingLength, color=color.red, size=size.tiny, text="LL")
 
-plotshape(showSwings and paNewSwingHigh, title="Swing High", style=shape.triangledown, location=location.abovebar, offset=-swingLength, color=color.red, size=size.tiny, text="SH")
+plotshape(paBullBos, title="Bull BOS", style=shape.labelup, location=location.belowbar, color=color.green, text="BOS")
+plotshape(paBearBos, title="Bear BOS", style=shape.labeldown, location=location.abovebar, color=color.red, text="BOS")
+plotshape(paBullChoch, title="Bull CHoCH", style=shape.circle, location=location.belowbar, color=color.blue, size=size.tiny)
+plotshape(paBearChoch, title="Bear CHoCH", style=shape.circle, location=location.abovebar, color=color.orange, size=size.tiny)
 
-plotshape(showSwings and paNewSwingLow, title="Swing Low", style=shape.triangleup, location=location.belowbar, offset=-swingLength, color=color.lime, size=size.tiny, text="SL")
+plot(paLastHH, "Bull Structure", color=color.green, linewidth=2, style=plot.style_stepline)
+plot(paLastLL, "Bear Structure", color=color.red, linewidth=2, style=plot.style_stepline)
