@@ -1,0 +1,450 @@
+// =============================================================================
+// PRICE ACTION MASTER INDICATOR — Pine Script v6
+// Instruments : XAUUSD (Gold), Forex, Indices, Crypto
+// Timeframes  : 15m / 1H  (day trading)
+// Author      : GG
+// =============================================================================
+//@version=6
+indicator(title = "Price Action", overlay = true, max_bars_back = 500, max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500)
+// ─────────────────────────────────────────────────────────────────────────────
+// INPUT GROUPS
+// ─────────────────────────────────────────────────────────────────────────────
+string GRP_DASH   = "📊 Dashboard"
+string GRP_STRUCT = "📐 Market Structure"
+string GRP_OB     = "🧱 Order Blocks"
+string GRP_FVG    = "⚡ Fair Value Gaps"
+string GRP_CANDLE = "🕯 Candlestick Patterns"
+string GRP_SR     = "📏 Support & Resistance"
+string GRP_SIG    = "🎯 Signals & SL/TP"
+string GRP_RISK   = "⚙️ ATR / Risk Settings"
+string GRP_COLOR  = "🎨 Colors"
+show_dashboard  = input.bool(true,  "Show Dashboard Table",           group = GRP_DASH)
+show_bos        = input.bool(false, "Show BOS Labels",                group = GRP_STRUCT)
+show_choch      = input.bool(false, "Show CHoCH Labels",              group = GRP_STRUCT)
+swing_len       = input.int (20,    "Swing Lookback Length",          group = GRP_STRUCT, minval = 3, maxval = 50)
+bos_atr_mult    = input.float(1.5,  "Min Swing Size (ATR ×)",         group = GRP_STRUCT, minval = 0.5, maxval = 5.0, step = 0.1)
+show_ob         = input.bool(false, "Show Order Block Boxes",         group = GRP_OB)
+ob_extend       = input.int (20,    "Extend OB Boxes (bars right)",   group = GRP_OB,     minval = 1, maxval = 200)
+show_fvg        = input.bool(false, "Show FVG Boxes",                 group = GRP_FVG)
+fvg_extend      = input.int (30,    "Extend FVG Boxes (bars right)",  group = GRP_FVG,    minval = 1, maxval = 200)
+show_pin        = input.bool(false, "Show Pin Bar Labels",            group = GRP_CANDLE)
+show_eng        = input.bool(false, "Show Engulfing Labels",          group = GRP_CANDLE)
+show_ib         = input.bool(false, "Show Inside Bar Labels",         group = GRP_CANDLE)
+show_doji       = input.bool(false, "Show Doji Labels",               group = GRP_CANDLE)
+pin_wick_ratio  = input.float(0.67, "Pin Bar Min Wick Ratio",         group = GRP_CANDLE, minval = 0.50, maxval = 0.90, step = 0.01)
+show_sr         = input.bool(false, "Show S/R Pivot Lines",           group = GRP_SR)
+sr_pivot_len    = input.int (20,    "Pivot Length (left & right)",    group = GRP_SR,     minval = 5,  maxval = 50)
+sr_lookback     = input.int (100,   "Proximity Lookback (bars)",      group = GRP_SR,     minval = 20, maxval = 500)
+show_signals    = input.bool(true,  "Show Entry Signal Arrows",       group = GRP_SIG)
+show_sl_tp      = input.bool(false, "Show SL & TP Lines on Signal",   group = GRP_SIG)
+min_confluence  = input.int (2,     "Min Confluence Score  (1–5)",    group = GRP_SIG,    minval = 1, maxval = 5)
+sl_tp_bars      = input.int (40,    "SL/TP Line Length (bars right)", group = GRP_SIG,    minval = 0, maxval = 300)
+trend_filter    = input.bool(true,  "Trend Filter (no counter-trend signals)", group = GRP_SIG)
+trend_flip_exit = input.bool(true,  "Exit trade when trend flips against it",  group = GRP_SIG)
+atr_len         = input.int  (14,   "ATR Length",                     group = GRP_RISK,   minval = 1,  maxval = 100)
+auto_sl_tp      = input.bool (true, "Auto SL/TP scale by timeframe",  group = GRP_RISK)
+sl_atr_mult     = input.float(1.5,  "SL ATR Multiplier (manual)",     group = GRP_RISK,   minval = 0.1, maxval = 5.0, step = 0.1)
+tp_rr_ratio     = input.float(2.0,  "TP Risk : Reward   (manual)",    group = GRP_RISK,   minval = 0.5, maxval = 10.0, step = 0.1)
+bull_col        = input.color(color.new(#26a69a, 0),  "Bullish Color",      group = GRP_COLOR)
+bear_col        = input.color(color.new(#ef5350, 0),  "Bearish Color",      group = GRP_COLOR)
+choch_col       = input.color(color.new(#9c27b0, 0),  "CHoCH Label Color",  group = GRP_COLOR)
+entry_line_col  = input.color(color.new(#ff9800, 0),  "Entry Line Color",   group = GRP_COLOR)
+ob_bull_fill    = input.color(color.new(#26a69a, 80), "Bull OB Fill",       group = GRP_COLOR)
+ob_bear_fill    = input.color(color.new(#ef5350, 80), "Bear OB Fill",       group = GRP_COLOR)
+fvg_bull_fill   = input.color(color.new(#2196f3, 85), "Bull FVG Fill",      group = GRP_COLOR)
+fvg_bear_fill   = input.color(color.new(#ff9800, 85), "Bear FVG Fill",      group = GRP_COLOR)
+sl_line_col     = input.color(color.new(#ef5350, 0),  "SL Line Color",      group = GRP_COLOR)
+tp_line_col     = input.color(color.new(#26a69a, 0),  "TP Line Color",      group = GRP_COLOR)
+// ─────────────────────────────────────────────────────────────────────────────
+// CORE CALCULATIONS
+// ─────────────────────────────────────────────────────────────────────────────
+atr_val     = ta.atr(atr_len)
+candle_body = math.abs(close - open)
+bar_range   = high - low
+upper_wick  = high - math.max(open, close)
+lower_wick  = math.min(open, close) - low
+// ─────────────────────────────────────────────────────────────────────────────
+// 1. MARKET STRUCTURE
+// ─────────────────────────────────────────────────────────────────────────────
+swing_high = ta.pivothigh(high, swing_len, swing_len)
+swing_low  = ta.pivotlow (low,  swing_len, swing_len)
+var float prev_sh = na
+var float last_sh = na
+var float prev_sl = na
+var float last_sl = na
+if not na(swing_high)
+    prev_sh := last_sh
+    last_sh := swing_high
+if not na(swing_low)
+    prev_sl := last_sl
+    last_sl := swing_low
+// Swing is only meaningful if its height exceeds bos_atr_mult × ATR
+bool swing_meaningful = not na(last_sh) and not na(last_sl) and (last_sh - last_sl) > atr_val * bos_atr_mult
+
+// Cooldown: suppress same-direction BOS for swing_len×2 bars after one fires
+// Prevents rapid-fire duplicate labels during consolidation
+var int last_bull_bos_bar = -999
+var int last_bear_bos_bar = -999
+int bos_cooldown = swing_len * 2
+
+bool bullish_bos_raw = swing_meaningful and close > last_sh and close[1] <= last_sh
+bool bearish_bos_raw = swing_meaningful and close < last_sl and close[1] >= last_sl
+
+bool bullish_bos = bullish_bos_raw and (bar_index - last_bull_bos_bar) > bos_cooldown
+bool bearish_bos = bearish_bos_raw and (bar_index - last_bear_bos_bar) > bos_cooldown
+
+if bullish_bos
+    last_bull_bos_bar := bar_index
+if bearish_bos
+    last_bear_bos_bar := bar_index
+
+var bool in_uptrend   = false
+var bool in_downtrend = false
+if bullish_bos
+    in_uptrend   := true
+    in_downtrend := false
+if bearish_bos
+    in_downtrend := true
+    in_uptrend   := false
+
+// CHoCH: same cross but only in OPPOSING trend — takes priority over BOS in display
+bool bullish_choch = swing_meaningful and in_downtrend and close > last_sh and close[1] <= last_sh and (bar_index - last_bull_bos_bar) > bos_cooldown
+bool bearish_choch = swing_meaningful and in_uptrend   and close < last_sl and close[1] >= last_sl and (bar_index - last_bear_bos_bar) > bos_cooldown
+var string last_struct_txt = "—"
+var color  last_struct_col = color.gray
+if bullish_choch
+    last_struct_txt := "CHoCH ▲"
+    last_struct_col := choch_col
+else if bearish_choch
+    last_struct_txt := "CHoCH ▼"
+    last_struct_col := choch_col
+else if bullish_bos
+    last_struct_txt := "BOS ▲"
+    last_struct_col := bull_col
+else if bearish_bos
+    last_struct_txt := "BOS ▼"
+    last_struct_col := bear_col
+if show_bos and bullish_bos and not bullish_choch
+    label.new(bar_index, low - atr_val, "BOS ▲", color = bull_col, textcolor = color.white, style = label.style_label_up, size = size.normal)
+if show_bos and bearish_bos and not bearish_choch
+    label.new(bar_index, high + atr_val, "BOS ▼", color = bear_col, textcolor = color.white, style = label.style_label_down, size = size.normal)
+if show_choch and bullish_choch
+    label.new(bar_index, low - atr_val, "CHoCH ▲", color = choch_col, textcolor = color.white, style = label.style_label_up, size = size.normal)
+if show_choch and bearish_choch
+    label.new(bar_index, high + atr_val, "CHoCH ▼", color = choch_col, textcolor = color.white, style = label.style_label_down, size = size.normal)
+// ─────────────────────────────────────────────────────────────────────────────
+// 2. ORDER BLOCKS
+// ─────────────────────────────────────────────────────────────────────────────
+bool bull_impulse = close > close[1] * 1.001 and close > open and candle_body > atr_val * 0.5
+bool bear_impulse = close < close[1] * 0.999 and close < open and candle_body > atr_val * 0.5
+var float bull_ob_top    = na
+var float bull_ob_bottom = na
+var float bear_ob_top    = na
+var float bear_ob_bottom = na
+if bull_impulse and open[1] > close[1]
+    bull_ob_top    := high[1]
+    bull_ob_bottom := low[1]
+if bear_impulse and open[1] < close[1]
+    bear_ob_top    := high[1]
+    bear_ob_bottom := low[1]
+if show_ob and bull_impulse and open[1] > close[1]
+    box.new(bar_index - 1, high[1], bar_index + ob_extend, low[1], border_color = bull_col, bgcolor = ob_bull_fill, border_width = 1)
+if show_ob and bear_impulse and open[1] < close[1]
+    box.new(bar_index - 1, high[1], bar_index + ob_extend, low[1], border_color = bear_col, bgcolor = ob_bear_fill, border_width = 1)
+bool price_in_bull_ob = not na(bull_ob_bottom) and close >= bull_ob_bottom and close <= bull_ob_top
+bool price_in_bear_ob = not na(bear_ob_bottom) and close >= bear_ob_bottom and close <= bear_ob_top
+bool bull_ob_above    = not na(bull_ob_bottom) and close < bull_ob_bottom
+bool bear_ob_below    = not na(bear_ob_bottom) and close > bear_ob_top
+// ─────────────────────────────────────────────────────────────────────────────
+// 3. FAIR VALUE GAPS
+// ─────────────────────────────────────────────────────────────────────────────
+// Only flag FVG if the gap is meaningful (at least 20% of ATR)
+bool bull_fvg = low > high[2] and (low - high[2]) > atr_val * 0.2
+bool bear_fvg = high < low[2] and (low[2] - high) > atr_val * 0.2
+if show_fvg and bull_fvg
+    box.new(bar_index + 1, low, bar_index + 1 + fvg_extend, high[2], border_color = color.new(#2196f3, 50), bgcolor = fvg_bull_fill, border_width = 1)
+if show_fvg and bear_fvg
+    box.new(bar_index + 1, low[2], bar_index + 1 + fvg_extend, high, border_color = color.new(#ff9800, 50), bgcolor = fvg_bear_fill, border_width = 1)
+bool price_in_bull_fvg = bull_fvg[1] and close >= high[3] and close <= low[1]
+bool price_in_bear_fvg = bear_fvg[1] and close <= low[3]  and close >= high[1]
+var string last_fvg_txt = "—"
+var color  last_fvg_col = color.gray
+if bull_fvg
+    last_fvg_txt := "Bull FVG formed"
+    last_fvg_col := color.new(#2196f3, 0)
+else if bear_fvg
+    last_fvg_txt := "Bear FVG formed"
+    last_fvg_col := color.new(#ff9800, 0)
+if price_in_bull_fvg
+    last_fvg_txt := "✓ Filling Bull FVG"
+    last_fvg_col := color.new(#2196f3, 0)
+else if price_in_bear_fvg
+    last_fvg_txt := "✓ Filling Bear FVG"
+    last_fvg_col := color.new(#ff9800, 0)
+// ─────────────────────────────────────────────────────────────────────────────
+// 4. CANDLESTICK PATTERNS
+// ─────────────────────────────────────────────────────────────────────────────
+bool has_range          = bar_range > 0
+bool bull_pin           = has_range and (lower_wick / bar_range >= pin_wick_ratio) and (close > low + bar_range * 0.5) and (upper_wick < bar_range * 0.25) and (bar_range > atr_val * 0.5)
+bool bear_pin           = has_range and (upper_wick / bar_range >= pin_wick_ratio) and (close < high - bar_range * 0.5) and (lower_wick < bar_range * 0.25) and (bar_range > atr_val * 0.5)
+bool bull_engulf        = close > open and open[1] > close[1] and close > open[1] and open < close[1] and candle_body > candle_body[1]
+bool bear_engulf        = close < open and open[1] < close[1] and close < open[1] and open > close[1] and candle_body > candle_body[1]
+bool doji_pattern       = has_range and (candle_body / bar_range <= 0.10) and (bar_range > atr_val * 0.3)
+bool inside_bar_pattern = high < high[1] and low > low[1]
+if show_pin and bull_pin
+    label.new(bar_index, low - atr_val * 0.5, "Pin ▲", color = color.new(bull_col, 20), textcolor = color.white, style = label.style_label_up, size = size.normal)
+if show_pin and bear_pin
+    label.new(bar_index, high + atr_val * 0.5, "Pin ▼", color = color.new(bear_col, 20), textcolor = color.white, style = label.style_label_down, size = size.normal)
+if show_eng and bull_engulf
+    label.new(bar_index, low - atr_val * 0.3, "Eng ▲", color = color.new(bull_col, 30), textcolor = color.white, style = label.style_label_up, size = size.normal)
+if show_eng and bear_engulf
+    label.new(bar_index, high + atr_val * 0.3, "Eng ▼", color = color.new(bear_col, 30), textcolor = color.white, style = label.style_label_down, size = size.normal)
+if show_ib and inside_bar_pattern
+    label.new(bar_index, high + atr_val * 0.2, "IB", color = color.new(color.gray, 20), textcolor = color.white, style = label.style_label_down, size = size.normal)
+if show_doji and doji_pattern
+    label.new(bar_index, high + atr_val * 0.2, "Doji", color = color.new(color.orange, 20), textcolor = color.white, style = label.style_label_down, size = size.normal)
+// ─────────────────────────────────────────────────────────────────────────────
+// 5. SUPPORT & RESISTANCE
+// ─────────────────────────────────────────────────────────────────────────────
+pivot_high_sr = ta.pivothigh(high, sr_pivot_len, sr_pivot_len)
+pivot_low_sr  = ta.pivotlow (low,  sr_pivot_len, sr_pivot_len)
+if show_sr and not na(pivot_high_sr)
+    line.new(bar_index - sr_pivot_len, pivot_high_sr, bar_index + 30, pivot_high_sr, color = color.new(bear_col, 60), width = 1, style = line.style_dashed)
+if show_sr and not na(pivot_low_sr)
+    line.new(bar_index - sr_pivot_len, pivot_low_sr,  bar_index + 30, pivot_low_sr,  color = color.new(bull_col, 60), width = 1, style = line.style_dashed)
+highest_pivot = ta.highest(not na(pivot_high_sr) ? pivot_high_sr : na, sr_lookback)
+lowest_pivot  = ta.lowest (not na(pivot_low_sr)  ? pivot_low_sr  : na, sr_lookback)
+bool near_resistance = not na(highest_pivot) and high >= highest_pivot * 0.990 and high <= highest_pivot * 1.010
+bool near_support    = not na(lowest_pivot)  and low  <= lowest_pivot  * 1.010 and low  >= lowest_pivot  * 0.990
+var string last_sr_txt = "—"
+var color  last_sr_col = color.gray
+if near_support
+    last_sr_txt := "✓  At Support"
+    last_sr_col := color.new(#26a69a, 0)
+else if near_resistance
+    last_sr_txt := "✓  At Resist"
+    last_sr_col := color.new(#ef5350, 0)
+else if not na(highest_pivot) and close < highest_pivot
+    last_sr_txt := "Res: " + str.tostring(math.round(highest_pivot, 1))
+    last_sr_col := color.new(color.white, 50)
+else if not na(lowest_pivot) and close > lowest_pivot
+    last_sr_txt := "Sup: " + str.tostring(math.round(lowest_pivot, 1))
+    last_sr_col := color.new(color.white, 50)
+// ─────────────────────────────────────────────────────────────────────────────
+// 6. CONFLUENCE SCORING
+// ─────────────────────────────────────────────────────────────────────────────
+int long_score  = 0
+long_score  += (in_uptrend  or bullish_bos or bullish_choch) ? 1 : 0
+long_score  += (bull_pin    or bull_engulf)                  ? 1 : 0
+long_score  += price_in_bull_ob                              ? 1 : 0
+long_score  += price_in_bull_fvg                             ? 1 : 0
+long_score  += near_support                                  ? 1 : 0
+int short_score = 0
+short_score += (in_downtrend or bearish_bos or bearish_choch) ? 1 : 0
+short_score += (bear_pin     or bear_engulf)                  ? 1 : 0
+short_score += price_in_bear_ob                               ? 1 : 0
+short_score += price_in_bear_fvg                              ? 1 : 0
+short_score += near_resistance                                ? 1 : 0
+bool long_signal  = long_score  >= min_confluence
+bool short_signal = short_score >= min_confluence
+// ─────────────────────────────────────────────────────────────────────────────
+// 6b. SCORE REASON STRINGS  (used in dashboard)
+// ─────────────────────────────────────────────────────────────────────────────
+// Long reasons — each active factor appended with " · " separator
+string long_reasons = ""
+if in_uptrend or bullish_bos or bullish_choch
+    string _r = bullish_choch ? "CHoCH▲" : bullish_bos ? "BOS▲" : "Trend▲"
+    long_reasons := long_reasons == "" ? _r : long_reasons + " · " + _r
+if bull_pin or bull_engulf
+    string _r = bull_pin and bull_engulf ? "Pin▲+Eng▲" : bull_pin ? "Pin Bar▲" : "Engulf▲"
+    long_reasons := long_reasons == "" ? _r : long_reasons + " · " + _r
+if price_in_bull_ob
+    long_reasons := long_reasons == "" ? "Bull OB" : long_reasons + " · Bull OB"
+if price_in_bull_fvg
+    long_reasons := long_reasons == "" ? "Bull FVG" : long_reasons + " · Bull FVG"
+if near_support
+    long_reasons := long_reasons == "" ? "Support" : long_reasons + " · Support"
+if long_reasons == ""
+    long_reasons := "—"
+// Short reasons
+string short_reasons = ""
+if in_downtrend or bearish_bos or bearish_choch
+    string _r = bearish_choch ? "CHoCH▼" : bearish_bos ? "BOS▼" : "Trend▼"
+    short_reasons := short_reasons == "" ? _r : short_reasons + " · " + _r
+if bear_pin or bear_engulf
+    string _r = bear_pin and bear_engulf ? "Pin▼+Eng▼" : bear_pin ? "Pin Bar▼" : "Engulf▼"
+    short_reasons := short_reasons == "" ? _r : short_reasons + " · " + _r
+if price_in_bear_ob
+    short_reasons := short_reasons == "" ? "Bear OB" : short_reasons + " · Bear OB"
+if price_in_bear_fvg
+    short_reasons := short_reasons == "" ? "Bear FVG" : short_reasons + " · Bear FVG"
+if near_resistance
+    short_reasons := short_reasons == "" ? "Resist" : short_reasons + " · Resist"
+if short_reasons == ""
+    short_reasons := "—"
+// ─────────────────────────────────────────────────────────────────────────────
+// 7. TRADE STATE MACHINE
+// ─────────────────────────────────────────────────────────────────────────────
+int   tf_secs     = timeframe.in_seconds()
+float tf_sl       = tf_secs <= 300 ? 0.8 : tf_secs <= 900 ? 1.0 : tf_secs <= 3600 ? 1.5 : tf_secs <= 14400 ? 2.0 : 2.5
+float tf_rr       = tf_secs <= 300 ? 1.5 : tf_secs <= 900 ? 1.5 : tf_secs <= 3600 ? 2.0 : tf_secs <= 14400 ? 2.0 : 2.5
+float eff_sl_mult = auto_sl_tp ? tf_sl : sl_atr_mult
+float eff_tp_rr   = auto_sl_tp ? tf_rr : tp_rr_ratio
+sl_dist = atr_val * eff_sl_mult
+tp_dist = sl_dist * eff_tp_rr
+var int   trade_state = 0
+var float active_sl   = na
+var float active_tp   = na
+var bool  sl_was_hit  = false
+var bool  tp_was_hit  = false
+sl_was_hit := false
+tp_was_hit := false
+if trade_state == 1
+    if low <= active_sl
+        sl_was_hit  := true
+        trade_state := 0
+    else if high >= active_tp
+        tp_was_hit  := true
+        trade_state := 0
+if trade_state == -1
+    if high >= active_sl
+        sl_was_hit  := true
+        trade_state := 0
+    else if low <= active_tp
+        tp_was_hit  := true
+        trade_state := 0
+bool long_ok  = not trend_filter or in_uptrend   or (not in_downtrend)
+bool short_ok = not trend_filter or in_downtrend or (not in_uptrend)
+if trend_flip_exit and trade_state == 1  and in_downtrend
+    trade_state := 0
+if trend_flip_exit and trade_state == -1 and in_uptrend
+    trade_state := 0
+bool long_trigger  = long_signal  and trade_state == 0 and long_ok
+bool short_trigger = short_signal and trade_state == 0 and short_ok
+if long_trigger
+    trade_state := 1
+    active_sl   := close - sl_dist
+    active_tp   := close + tp_dist
+if short_trigger
+    trade_state := -1
+    active_sl   := close + sl_dist
+    active_tp   := close - tp_dist
+// ─────────────────────────────────────────────────────────────────────────────
+// 8. SL / TP LINES — only last trade shown, entry line is orange and solid
+// ─────────────────────────────────────────────────────────────────────────────
+var line  ln_entry = na
+var line  ln_sl    = na
+var line  ln_tp    = na
+var label lb_entry = na
+var label lb_sl    = na
+var label lb_tp    = na
+if show_sl_tp and (long_trigger or short_trigger)
+    line.delete(ln_entry)
+    line.delete(ln_sl)
+    line.delete(ln_tp)
+    label.delete(lb_entry)
+    label.delete(lb_sl)
+    label.delete(lb_tp)
+if show_sl_tp and long_trigger
+    ln_entry := line.new(bar_index + 1, close,           bar_index + 1 + sl_tp_bars, close,           color = entry_line_col, width = 1, style = line.style_solid)
+    ln_sl    := line.new(bar_index + 1, close - sl_dist, bar_index + 1 + sl_tp_bars, close - sl_dist, color = sl_line_col,    width = 1, style = line.style_solid)
+    ln_tp    := line.new(bar_index + 1, close + tp_dist, bar_index + 1 + sl_tp_bars, close + tp_dist, color = tp_line_col,    width = 1, style = line.style_solid)
+    lb_entry := label.new(bar_index + 1 + sl_tp_bars, close,           "Entry " + str.tostring(math.round(close,           1)), color = entry_line_col,            textcolor = color.white, style = label.style_label_left, size = size.small)
+    lb_sl    := label.new(bar_index + 1 + sl_tp_bars, close - sl_dist, "SL "    + str.tostring(math.round(close - sl_dist, 1)), color = color.new(color.red,   20), textcolor = color.white, style = label.style_label_left, size = size.small)
+    lb_tp    := label.new(bar_index + 1 + sl_tp_bars, close + tp_dist, "TP "    + str.tostring(math.round(close + tp_dist, 1)), color = color.new(color.green, 20), textcolor = color.white, style = label.style_label_left, size = size.small)
+if show_sl_tp and short_trigger
+    ln_entry := line.new(bar_index + 1, close,           bar_index + 1 + sl_tp_bars, close,           color = entry_line_col, width = 1, style = line.style_solid)
+    ln_sl    := line.new(bar_index + 1, close + sl_dist, bar_index + 1 + sl_tp_bars, close + sl_dist, color = sl_line_col,    width = 1, style = line.style_solid)
+    ln_tp    := line.new(bar_index + 1, close - tp_dist, bar_index + 1 + sl_tp_bars, close - tp_dist, color = tp_line_col,    width = 1, style = line.style_solid)
+    lb_entry := label.new(bar_index + 1 + sl_tp_bars, close,           "Entry " + str.tostring(math.round(close,           1)), color = entry_line_col,            textcolor = color.white, style = label.style_label_left, size = size.small)
+    lb_sl    := label.new(bar_index + 1 + sl_tp_bars, close + sl_dist, "SL "    + str.tostring(math.round(close + sl_dist, 1)), color = color.new(color.red,   20), textcolor = color.white, style = label.style_label_left, size = size.small)
+    lb_tp    := label.new(bar_index + 1 + sl_tp_bars, close - tp_dist, "TP "    + str.tostring(math.round(close - tp_dist, 1)), color = color.new(color.green, 20), textcolor = color.white, style = label.style_label_left, size = size.small)
+// ─────────────────────────────────────────────────────────────────────────────
+// 9. ENTRY SIGNAL ARROWS
+// ─────────────────────────────────────────────────────────────────────────────
+plotshape(show_signals and long_trigger[1],  "Long Signal",  shape.triangleup,   location.belowbar, bull_col, size = size.tiny)
+plotshape(show_signals and short_trigger[1], "Short Signal", shape.triangledown, location.abovebar, bear_col, size = size.tiny)
+// ─────────────────────────────────────────────────────────────────────────────
+// 10. DASHBOARD TABLE
+// Row layout (13 rows total):
+//   0  — header
+//   1  — Trend
+//   2  — Structure
+//   3  — Order Block
+//   4  — FVG
+//   5  — S / R
+//   6  — Long Score  (count)
+//   7  — Long Score  (reasons)   ← NEW
+//   8  — Short Score (count)
+//   9  — Short Score (reasons)   ← NEW
+//   10 — ATR
+//   11 — SL / TP
+//   12 — Trade
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared cell background — solid dark so table is readable on any chart theme
+color _bg  = color.new(#0d1117, 5)   // near-opaque dark navy
+color _dim = color.new(#b0bec5, 0)   // muted blue-grey for inactive values
+color _sub = color.new(#78909c, 0)   // slightly dimmer for reason-row labels
+var table dash = table.new(position = position.top_right, columns = 2, rows = 13, bgcolor = _bg, border_color = color.new(#455a64, 0), border_width = 1, frame_color = color.new(#546e7a, 0), frame_width = 1)
+if show_dashboard and barstate.islast
+    // ── Row 0 : header ────────────────────────────────────────────────────────
+    table.cell(dash, 0, 0, "PA MASTER", text_color = color.white, bgcolor = color.new(#1565c0, 0), text_size = size.normal, text_halign = text.align_center)
+    table.cell(dash, 1, 0, syminfo.tickerid + " · " + timeframe.period + "m", text_color = color.yellow, bgcolor = color.new(#1565c0, 0), text_size = size.normal, text_halign = text.align_center)
+    // ── Row 1 : trend ─────────────────────────────────────────────────────────
+    string trend_txt = in_uptrend ? "▲  Bullish" : in_downtrend ? "▼  Bearish" : "─  Ranging"
+    color  trend_col = in_uptrend ? color.new(#26a69a, 0) : in_downtrend ? color.new(#ef5350, 0) : _dim
+    table.cell(dash, 0, 1, "Trend",   text_color = color.white, bgcolor = _bg, text_size = size.normal)
+    table.cell(dash, 1, 1, trend_txt, text_color = trend_col,   bgcolor = _bg, text_size = size.normal)
+    // ── Row 2 : structure ─────────────────────────────────────────────────────
+    table.cell(dash, 0, 2, "Structure",     text_color = color.white,    bgcolor = _bg, text_size = size.normal)
+    table.cell(dash, 1, 2, last_struct_txt, text_color = last_struct_col, bgcolor = _bg, text_size = size.normal)
+    // ── Row 3 : order block ───────────────────────────────────────────────────
+    string ob_txt = price_in_bull_ob ? "✓  AT Bull OB" : price_in_bear_ob ? "✓  AT Bear OB" : bull_ob_above ? "Bull OB below" : bear_ob_below ? "Bear OB above" : "—"
+    color  ob_col = price_in_bull_ob ? color.new(#26a69a, 0) : price_in_bear_ob ? color.new(#ef5350, 0) : _dim
+    table.cell(dash, 0, 3, "Order Block", text_color = color.white, bgcolor = _bg, text_size = size.normal)
+    table.cell(dash, 1, 3, ob_txt,        text_color = ob_col,      bgcolor = _bg, text_size = size.normal)
+    // ── Row 4 : FVG ───────────────────────────────────────────────────────────
+    table.cell(dash, 0, 4, "FVG",        text_color = color.white, bgcolor = _bg, text_size = size.normal)
+    table.cell(dash, 1, 4, last_fvg_txt, text_color = last_fvg_col, bgcolor = _bg, text_size = size.normal)
+    // ── Row 5 : S/R ───────────────────────────────────────────────────────────
+    table.cell(dash, 0, 5, "S / R",     text_color = color.white, bgcolor = _bg, text_size = size.normal)
+    table.cell(dash, 1, 5, last_sr_txt, text_color = last_sr_col,  bgcolor = _bg, text_size = size.normal)
+    // ── Row 6 : long score (count) ────────────────────────────────────────────
+    color ls_col = long_score >= min_confluence ? color.new(#26a69a, 0) : _dim
+    table.cell(dash, 0, 6, "Long Score",                        text_color = color.white, bgcolor = _bg, text_size = size.normal)
+    table.cell(dash, 1, 6, str.tostring(long_score) + " / 5",  text_color = ls_col,      bgcolor = _bg, text_size = size.normal)
+    // ── Row 7 : long score (reasons) ──────────────────────────────────────────
+    table.cell(dash, 0, 7, "↳ Reasons",  text_color = _sub, bgcolor = _bg, text_size = size.small)
+    table.cell(dash, 1, 7, long_reasons, text_color = long_score >= min_confluence ? color.new(#26a69a, 0) : _dim, bgcolor = _bg, text_size = size.small)
+    // ── Row 8 : short score (count) ───────────────────────────────────────────
+    color ss_col = short_score >= min_confluence ? color.new(#ef5350, 0) : _dim
+    table.cell(dash, 0, 8, "Short Score",                        text_color = color.white, bgcolor = _bg, text_size = size.normal)
+    table.cell(dash, 1, 8, str.tostring(short_score) + " / 5",  text_color = ss_col,      bgcolor = _bg, text_size = size.normal)
+    // ── Row 9 : short score (reasons) ─────────────────────────────────────────
+    table.cell(dash, 0, 9, "↳ Reasons",   text_color = _sub, bgcolor = _bg, text_size = size.small)
+    table.cell(dash, 1, 9, short_reasons, text_color = short_score >= min_confluence ? color.new(#ef5350, 0) : _dim, bgcolor = _bg, text_size = size.small)
+    // ── Row 10 : ATR ──────────────────────────────────────────────────────────
+    string atr_mode = auto_sl_tp ? " (auto " + str.tostring(eff_sl_mult) + "×)" : " (manual)"
+    table.cell(dash, 0, 10, "ATR" + atr_mode,                     text_color = color.white, bgcolor = _bg, text_size = size.normal)
+    table.cell(dash, 1, 10, str.tostring(math.round(atr_val, 2)), text_color = color.white, bgcolor = _bg, text_size = size.normal)
+    // ── Row 11 : SL / TP ──────────────────────────────────────────────────────
+    string rr_label = "SL/TP  1:" + str.tostring(eff_tp_rr)
+    table.cell(dash, 0, 11, rr_label, text_color = color.white, bgcolor = _bg, text_size = size.normal)
+    table.cell(dash, 1, 11, str.tostring(math.round(sl_dist, 2)) + "  /  " + str.tostring(math.round(tp_dist, 2)), text_color = color.white, bgcolor = _bg, text_size = size.normal)
+    // ── Row 12 : trade state ──────────────────────────────────────────────────
+    string sig_txt = trade_state == 1 ? "⬆  IN LONG" : trade_state == -1 ? "⬇  IN SHORT" : long_trigger ? "⬆  LONG" : short_trigger ? "⬇  SHORT" : "—  Flat"
+    color  sig_tc  = trade_state == 1 ? color.new(#26a69a, 0) : trade_state == -1 ? color.new(#ef5350, 0) : long_trigger ? color.new(#26a69a, 0) : short_trigger ? color.new(#ef5350, 0) : _dim
+    color  sig_bg  = trade_state == 1 ? color.new(#26a69a, 60) : trade_state == -1 ? color.new(#ef5350, 60) : _bg
+    table.cell(dash, 0, 12, "Trade",  text_color = color.white, bgcolor = _bg,  text_size = size.normal)
+    table.cell(dash, 1, 12, sig_txt,  text_color = sig_tc,      bgcolor = sig_bg, text_size = size.normal, text_halign = text.align_center)
+// ─────────────────────────────────────────────────────────────────────────────
+// 11. ALERTS
+// ─────────────────────────────────────────────────────────────────────────────
+alertcondition(long_trigger,   title = "PA Long Signal",   message = "PA Master: Long signal triggered")
+alertcondition(short_trigger,  title = "PA Short Signal",  message = "PA Master: Short signal triggered")
+alertcondition(sl_was_hit,     title = "PA SL Hit",        message = "PA Master: Stop loss hit — trade closed")
+alertcondition(tp_was_hit,     title = "PA TP Hit",        message = "PA Master: Take profit hit — trade closed")
+alertcondition(bullish_bos,    title = "PA BOS Up",        message = "PA Master: Bullish Break of Structure")
+alertcondition(bearish_bos,    title = "PA BOS Down",      message = "PA Master: Bearish Break of Structure")
+alertcondition(bullish_choch,  title = "PA CHoCH Up",      message = "PA Master: Bullish Change of Character")
+alertcondition(bearish_choch,  title = "PA CHoCH Down",    message = "PA Master: Bearish Change of Character")

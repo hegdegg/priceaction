@@ -32,6 +32,8 @@ groupTimeframe = "Multi-Timeframe"
 //-----------------------------------------------------------------------------
 
 showDashboard = input.bool(true, "Show Dashboard", group=groupDashboard)
+showChartMarkers = input.bool(false, "Show Chart Markers", group=groupDebug)
+showEntryExitSignals = input.bool(false, "Show Entry/Exit Signals", group=groupDebug)
 debugMode = input.bool(false, "Debug Mode", group=groupDebug)
 
 selectedTimeframe = input.string("5", "Current Timeframe", options=["1", "5", "15", "30", "60", "240", "1D"], group=groupTimeframe)
@@ -589,56 +591,60 @@ var float trendLowInShort = na
 pullbackThreshold = paAtr * 0.5
 
 //-----------------------------------------------------------------------------
-// CONFLUENCE SCORING ENGINE
+// CONFLUENCE SCORING ENGINE - TREND + BOS BASE, REST BONUS
 //-----------------------------------------------------------------------------
 longConfluence = 0.0
 shortConfluence = 0.0
-
-// BOS Signal
-if paBullBos
-    longConfluence += 1
-if paBearBos
-    shortConfluence += 1
-
-// Displacement Signal
-if paBullDisplacement
-    longConfluence += 1
-if paBearDisplacement
-    shortConfluence += 1
-
-// Impulse Candle
-if paImpulseBull
-    longConfluence += 1
-if paImpulseBear
-    shortConfluence += 1
-
-// Volume Confirmation
-if volumeConfirm
-    longConfluence += requireVolumeConfirm ? 1 : 0
-    shortConfluence += requireVolumeConfirm ? 1 : 0
-
-// FVG Confirmation
-if bullFVG
-    longConfluence += detectFVG ? 1 : 0
-if bearFVG
-    shortConfluence += detectFVG ? 1 : 0
-
-// Pin Bar Pattern
-if bullPin
-    longConfluence += 1
-if bearPin
-    shortConfluence += 1
 
 // Market Trend Alignment
 bullTrendAligned = paMarketState == MARKET_BULL or paMarketState == MARKET_BULL_PULLBACK
 bearTrendAligned = paMarketState == MARKET_BEAR or paMarketState == MARKET_BEAR_PULLBACK
 
+// BASE SCORING (Required for entry)
+// Trend Alignment = +1
 if bullTrendAligned
-    longConfluence += requireTrendAlignment ? 1 : 0
+    longConfluence += 1
 if bearTrendAligned
-    shortConfluence += requireTrendAlignment ? 1 : 0
+    shortConfluence += 1
 
-// Order Block Present
+// BOS Signal = +1
+if paBullBos
+    longConfluence += 1
+if paBearBos
+    shortConfluence += 1
+
+// === BONUS SIGNALS (Additional confidence) ===
+
+// Impulse Candle = +1 bonus
+if paImpulseBull
+    longConfluence += 1
+if paImpulseBear
+    shortConfluence += 1
+
+// Volume Confirmation = +1 bonus
+if volumeConfirm
+    longConfluence += 1
+    shortConfluence += 1
+
+// FVG Confirmation = +1 bonus
+if bullFVG
+    longConfluence += 1
+if bearFVG
+    shortConfluence += 1
+
+// Pin Bar Pattern = +1 bonus
+if bullPin
+    longConfluence += 1
+if bearPin
+    shortConfluence += 1
+
+// Displacement Signal = +1 bonus
+if paBullDisplacement
+    longConfluence += 1
+if paBearDisplacement
+    shortConfluence += 1
+
+// Order Block Present = +0.5 bonus
 bullOBPresent = not na(bullOB)
 bearOBPresent = not na(bearOB)
 
@@ -658,31 +664,15 @@ paEntryReason := ""
 longRR = strategy.position_size > 0 and not na(longTarget) and not na(longStop) ? ((longTarget - strategy.position_avg_price) / math.abs(strategy.position_avg_price - longStop)) : 0
 shortRR = strategy.position_size < 0 and not na(shortTarget) and not na(shortStop) ? ((math.abs(strategy.position_avg_price - shortTarget)) / math.abs(shortStop - strategy.position_avg_price)) : 0
 
-if enableLong and not longCooldown
+if enableLong and not longCooldown and longConfluence >= minConfluenceScore
+    paLongSignal := true
+    paEntryReason := "Bull (" + str.tostring(longConfluence, "#") + ")"
+    lastLongBar := bar_index
 
-    bosValid = paBullBos
-    impulseValid = useImpulseFilter ? paImpulseBull : true
-    trendValid = requireTrendAlignment ? bullTrendAligned : true
-    confluenceValid = useConfluenceScore ? longConfluence >= minConfluenceScore : true
-    volumeValid = requireVolumeConfirm ? volumeConfirm : true
-
-    if bosValid and impulseValid and trendValid and confluenceValid and volumeValid
-        paLongSignal := true
-        paEntryReason := "Bull Confluence (" + str.tostring(longConfluence, "#") + ")"
-        lastLongBar := bar_index
-
-if enableShort and not shortCooldown
-
-    bosValid = paBearBos
-    impulseValid = useImpulseFilter ? paImpulseBear : true
-    trendValid = requireTrendAlignment ? bearTrendAligned : true
-    confluenceValid = useConfluenceScore ? shortConfluence >= minConfluenceScore : true
-    volumeValid = requireVolumeConfirm ? volumeConfirm : true
-
-    if bosValid and impulseValid and trendValid and confluenceValid and volumeValid
-        paShortSignal := true
-        paEntryReason := "Bear Confluence (" + str.tostring(shortConfluence, "#") + ")"
-        lastShortBar := bar_index
+if enableShort and not shortCooldown and shortConfluence >= minConfluenceScore
+    paShortSignal := true
+    paEntryReason := "Bear (" + str.tostring(shortConfluence, "#") + ")"
+    lastShortBar := bar_index
 
 //-----------------------------------------------------------------------------
 // LAST OPPOSITE CANDLE
@@ -851,13 +841,13 @@ strategy.exit("Short Exit", from_entry="Short", stop=shortStop, limit=shortTarge
 // PULLBACK RE-ENTRY DETECTION
 //-----------------------------------------------------------------------------
 
-// Detect pullback in long trend
+// Detect pullback in long trend (requires pullback + impulse confirmation)
 pullbackInLong = inLongTrend and barsInLongTrend > 3 and close < lastBullBosPrice and paBearish and paImpulseBear
-longPullbackEntry = pullbackInLong and longConfluence >= 2 and paMarketState == MARKET_BULL
+longPullbackEntry = pullbackInLong and paMarketState == MARKET_BULL
 
-// Detect pullback in short trend
+// Detect pullback in short trend (requires pullback + impulse confirmation)
 pullbackInShort = inShortTrend and barsInShortTrend > 3 and close > lastBearBosPrice and paBullish and paImpulseBull
-shortPullbackEntry = pullbackInShort and shortConfluence >= 2 and paMarketState == MARKET_BEAR
+shortPullbackEntry = pullbackInShort and paMarketState == MARKET_BEAR
 
 //-----------------------------------------------------------------------------
 // PULLBACK RE-ENTRIES
@@ -934,7 +924,7 @@ mtf3Trend = request.security(syminfo.tickerid, "D", paMarketState)
 if showDashboard
 
     if na(dash)
-        dash := table.new(position.top_right, 2, 24)
+        dash := table.new(position.top_right, 2, 21)
 
 
     stateText =
@@ -971,141 +961,119 @@ if showDashboard
         table.cell(dash,0,2,"Structure",bgcolor=tableLabel,text_color=tableText)
         table.cell(dash,1,2,structureText,bgcolor=structureColor,text_color=tableText)
 
-        // === SIGNALS & CONFLUENCE ===
-        table.cell(dash,0,3,"Entry Signal",bgcolor=tableLabel,text_color=tableText)
-        table.cell(dash,1,3,entryText,bgcolor=entryColor,text_color=tableText)
-
-        // Confluence Score
-        table.cell(dash,0,4,"Confluence",bgcolor=tableLabel,text_color=tableText)
-        confText = paLongSignal ? str.tostring(longConfluence, "#") + "L" : paShortSignal ? str.tostring(shortConfluence, "#") + "S" : "-"
-        confColor = (longConfluence >= minConfluenceScore or shortConfluence >= minConfluenceScore) ? color.green : tableNeutral
-        table.cell(dash,1,4,confText,bgcolor=confColor,text_color=tableText)
-
         // === CANDLE ANALYSIS ===
-        table.cell(dash,0,5,"Candle",bgcolor=tableLabel,text_color=tableText)
-        table.cell(dash,1,5,paBullish ? "Bull" : "Bear",bgcolor=paBullish ? tableBull : tableBear,text_color=tableText)
+        table.cell(dash,0,3,"Candle",bgcolor=tableLabel,text_color=tableText)
+        table.cell(dash,1,3,paBullish ? "Bull" : "Bear",bgcolor=paBullish ? tableBull : tableBear,text_color=tableText)
 
         // Pattern
-        table.cell(dash,0,6,"Pattern",bgcolor=tableLabel,text_color=tableText)
+        table.cell(dash,0,4,"Pattern",bgcolor=tableLabel,text_color=tableText)
         patternText = bullPin ? "Bull Pin" : bearPin ? "Bear Pin" : bullEngulf ? "Bull Engulf" : bearEngulf ? "Bear Engulf" : insideBar ? "Inside" : outsideBar ? "Outside" : "-"
-        table.cell(dash,1,6,patternText,bgcolor=tableValue,text_color=tableText)
+        table.cell(dash,1,4,patternText,bgcolor=tableValue,text_color=tableText)
 
         // === VOLATILITY & VOLUME ===
-        table.cell(dash,0,7,"ATR",bgcolor=tableLabel,text_color=tableText)
-        table.cell(dash,1,7,str.tostring(paAtr,"#.##"),bgcolor=tableValue,text_color=tableText)
-
         // Volume
-        table.cell(dash,0,8,"Volume",bgcolor=tableLabel,text_color=tableText)
+        table.cell(dash,0,5,"Volume",bgcolor=tableLabel,text_color=tableText)
         volText = volumeConfirm ? "High" : lowVolume ? "Low" : "Avg"
         volColor = volumeConfirm ? color.green : lowVolume ? color.red : tableNeutral
-        table.cell(dash,1,8,volText,bgcolor=volColor,text_color=tableText)
+        table.cell(dash,1,5,volText,bgcolor=volColor,text_color=tableText)
 
         // === PRICE ACTION ===
-        table.cell(dash,0,9,"Impulse",bgcolor=tableLabel,text_color=tableText)
-        table.cell(dash,1,9,paImpulseBull ? "Bull" : paImpulseBear ? "Bear" : "No",bgcolor=paImpulseBull ? tableBull : paImpulseBear ? tableBear : tableNeutral,text_color=tableText)
+        table.cell(dash,0,6,"Impulse",bgcolor=tableLabel,text_color=tableText)
+        table.cell(dash,1,6,paImpulseBull ? "Bull" : paImpulseBear ? "Bear" : "No",bgcolor=paImpulseBull ? tableBull : paImpulseBear ? tableBear : tableNeutral,text_color=tableText)
 
         // Displacement
-        table.cell(dash,0,10,"Displacement",bgcolor=tableLabel,text_color=tableText)
-        table.cell(dash,1,10,paBullDisplacement ? "Bull" : paBearDisplacement ? "Bear" : "No",bgcolor=paBullDisplacement ? tableBull : paBearDisplacement ? tableBear : tableNeutral,text_color=tableText)
+        table.cell(dash,0,7,"Displacement",bgcolor=tableLabel,text_color=tableText)
+        table.cell(dash,1,7,paBullDisplacement ? "Bull" : paBearDisplacement ? "Bear" : "No",bgcolor=paBullDisplacement ? tableBull : paBearDisplacement ? tableBear : tableNeutral,text_color=tableText)
 
         // FVG
-        table.cell(dash,0,11,"FVG",bgcolor=tableLabel,text_color=tableText)
+        table.cell(dash,0,8,"FVG",bgcolor=tableLabel,text_color=tableText)
         fvgText = bullFVG ? "Bull" : bearFVG ? "Bear" : "No"
-        table.cell(dash,1,11,fvgText,bgcolor=(bullFVG or bearFVG) ? tableBull : tableNeutral,text_color=tableText)
+        table.cell(dash,1,8,fvgText,bgcolor=(bullFVG or bearFVG) ? tableBull : tableNeutral,text_color=tableText)
 
         // Order Block
-        table.cell(dash,0,12,"Order Block",bgcolor=tableLabel,text_color=tableText)
+        table.cell(dash,0,9,"Order Block",bgcolor=tableLabel,text_color=tableText)
         obStatus = not na(bullOB) ? "Bull" : not na(bearOB) ? "Bear" : "None"
-        table.cell(dash,1,12,obStatus,bgcolor=not na(bullOB) ? tableBull : not na(bearOB) ? tableBear : tableNeutral,text_color=tableText)
+        table.cell(dash,1,9,obStatus,bgcolor=not na(bullOB) ? tableBull : not na(bearOB) ? tableBear : tableNeutral,text_color=tableText)
 
-        // === RISK MANAGEMENT ===
-        table.cell(dash,0,13,"Stop Loss",bgcolor=tableLabel,text_color=tableText)
-        slText = strategy.position_size > 0 ? str.tostring(longStop, "#.##") : strategy.position_size < 0 ? str.tostring(shortStop, "#.##") : "-"
-        table.cell(dash,1,13,slText,bgcolor=tableValue,text_color=tableText)
 
-        // Take Profit
-        table.cell(dash,0,14,"Take Profit",bgcolor=tableLabel,text_color=tableText)
-        tpText = strategy.position_size > 0 ? str.tostring(longTarget, "#.##") : strategy.position_size < 0 ? str.tostring(shortTarget, "#.##") : "-"
-        table.cell(dash,1,14,tpText,bgcolor=tableValue,text_color=tableText)
+        // === SHOW ONLY AFTER ENTRY ===
+        if strategy.position_size != 0
 
-        // R:R Ratio
-        table.cell(dash,0,15,"R:R Ratio",bgcolor=tableLabel,text_color=tableText)
-        rrText = strategy.position_size > 0 ? str.tostring(longRR, "#.##") : strategy.position_size < 0 ? str.tostring(shortRR, "#.##") : "-"
-        table.cell(dash,1,15,rrText,bgcolor=tableValue,text_color=tableText)
+            // Position
+            table.cell(dash,0,10,"Position",bgcolor=tableLabel,text_color=tableText)
+            table.cell(dash,1,10,str.tostring(strategy.position_size),bgcolor=tableValue,text_color=tableText)
 
-        // === POSITION ===
-        table.cell(dash,0,16,"Position",bgcolor=tableLabel,text_color=tableText)
-        table.cell(dash,1,16,str.tostring(strategy.position_size),bgcolor=tableValue,text_color=tableText)
+            // Stop Loss
+            table.cell(dash,0,11,"Stop Loss",bgcolor=tableLabel,text_color=tableText)
+            slText = strategy.position_size > 0 ? str.tostring(longStop, "#.##") : str.tostring(shortStop, "#.##")
+            table.cell(dash,1,11,slText,bgcolor=tableValue,text_color=tableText)
 
-        // PnL
-        table.cell(dash,0,17,"Net PnL",bgcolor=tableLabel,text_color=tableText)
-        table.cell(dash,1,17,str.tostring(strategy.netprofit,"#.##"),bgcolor=strategy.netprofit >= 0 ? tableBull : tableBear,text_color=tableText)
+            // Take Profit
+            table.cell(dash,0,12,"Take Profit",bgcolor=tableLabel,text_color=tableText)
+            tpText = strategy.position_size > 0 ? str.tostring(longTarget, "#.##") : str.tostring(shortTarget, "#.##")
+            table.cell(dash,1,12,tpText,bgcolor=tableValue,text_color=tableText)
 
-        // === TIMEFRAME ===
-        table.cell(dash,0,18,"Timeframe",bgcolor=tableLabel,text_color=tableText)
-        table.cell(dash,1,18,selectedTimeframe + "m",bgcolor=tableValue,text_color=tableText)
+            // R:R Ratio
+            table.cell(dash,0,13,"R:R Ratio",bgcolor=tableLabel,text_color=tableText)
+            rrText = strategy.position_size > 0 ? str.tostring(longRR, "#.##") : str.tostring(shortRR, "#.##")
+            table.cell(dash,1,13,rrText,bgcolor=tableValue,text_color=tableText)
 
-        // Win Rate
-        winRate = strategy.wintrades + strategy.losstrades > 0 ? (strategy.wintrades / (strategy.wintrades + strategy.losstrades)) * 100 : 0
-        table.cell(dash,0,19,"Win Rate",bgcolor=tableLabel,text_color=tableText)
-        table.cell(dash,1,19,str.tostring(winRate, "#.##") + "%",bgcolor=tableValue,text_color=tableText)
+            // Partial Profit Status
+            table.cell(dash,0,14,"Partial TP",bgcolor=tableLabel,text_color=tableText)
+            ptpStatus = strategy.position_size > 0 and longPartialTaken ? "✓ Taken" : strategy.position_size < 0 and shortPartialTaken ? "✓ Taken" : "Pending"
+            ptpColor = (longPartialTaken or shortPartialTaken) ? tableBull : tableWaiting
+            table.cell(dash,1,14,ptpStatus,bgcolor=ptpColor,text_color=tableText)
 
-        // === ADVANCED FEATURES ===
-        // Partial Profit Status
-        table.cell(dash,0,20,"Partial TP",bgcolor=tableLabel,text_color=tableText)
-        ptpStatus = strategy.position_size > 0 and longPartialTaken ? "✓ Taken" : strategy.position_size < 0 and shortPartialTaken ? "✓ Taken" : strategy.position_size != 0 ? "Pending" : "-"
-        ptpColor = (longPartialTaken or shortPartialTaken) ? tableBull : strategy.position_size != 0 ? tableWaiting : tableNeutral
-        table.cell(dash,1,20,ptpStatus,bgcolor=ptpColor,text_color=tableText)
+            // Trailing Stop
+            table.cell(dash,0,15,"Trailing SL",bgcolor=tableLabel,text_color=tableText)
+            tsStatus = strategy.position_size > 0 ? str.tostring(longTrailingStop, "#.##") : str.tostring(shortTrailingStop, "#.##")
+            table.cell(dash,1,15,tsStatus,bgcolor=tableValue,text_color=tableText)
 
-        // Trailing Stop Status
-        table.cell(dash,0,21,"Trailing SL",bgcolor=tableLabel,text_color=tableText)
-        tsStatus = strategy.position_size > 0 ? str.tostring(longTrailingStop, "#.##") : strategy.position_size < 0 ? str.tostring(shortTrailingStop, "#.##") : "-"
-        table.cell(dash,1,21,tsStatus,bgcolor=tableValue,text_color=tableText)
+            // 1st Target
+            table.cell(dash,0,16,"1st Target",bgcolor=tableLabel,text_color=tableText)
+            ftText = strategy.position_size > 0 ? str.tostring(longFirstTarget, "#.##") : str.tostring(shortFirstTarget, "#.##")
+            table.cell(dash,1,16,ftText,bgcolor=tableValue,text_color=tableText)
 
-        // Trend Status
-        table.cell(dash,0,22,"Trend",bgcolor=tableLabel,text_color=tableText)
-        trendStatus = inLongTrend ? "Bull (" + str.tostring(barsInLongTrend) + ")" : inShortTrend ? "Bear (" + str.tostring(barsInShortTrend) + ")" : "None"
-        trendColor = inLongTrend ? tableBull : inShortTrend ? tableBear : tableNeutral
-        table.cell(dash,1,22,trendStatus,bgcolor=trendColor,text_color=tableText)
-
-        // First Target
-        table.cell(dash,0,23,"1st Target",bgcolor=tableLabel,text_color=tableText)
-        ftText = strategy.position_size > 0 ? str.tostring(longFirstTarget, "#.##") : strategy.position_size < 0 ? str.tostring(shortFirstTarget, "#.##") : "-"
-        table.cell(dash,1,23,ftText,bgcolor=tableValue,text_color=tableText)
+            // Bars in Trend
+            table.cell(dash,0,17,"Bars in Trend",bgcolor=tableLabel,text_color=tableText)
+            barsText = inLongTrend ? str.tostring(barsInLongTrend) : inShortTrend ? str.tostring(barsInShortTrend) : "-"
+            table.cell(dash,1,17,barsText,bgcolor=tableValue,text_color=tableText)
 
 //-----------------------------------------------------------------------------
-// VISUALIZATIONS
+// VISUALIZATIONS (Hidden by default - enable with Show Chart Markers)
 //-----------------------------------------------------------------------------
 
 // Swing Highs and Lows
-plotshape(showSwings and paNewSwingHigh, title="Swing High", style=shape.triangledown, location=location.abovebar, offset=-swingLength, color=color.blue, size=size.small, text="SH")
-plotshape(showSwings and paNewSwingLow, title="Swing Low", style=shape.triangleup, location=location.belowbar, offset=-swingLength, color=color.purple, size=size.small, text="SL")
+plotshape(showChartMarkers and showSwings and paNewSwingHigh, title="Swing High", style=shape.triangledown, location=location.abovebar, offset=-swingLength, color=color.blue, size=size.tiny)
+plotshape(showChartMarkers and showSwings and paNewSwingLow, title="Swing Low", style=shape.triangleup, location=location.belowbar, offset=-swingLength, color=color.purple, size=size.tiny)
 
 // Structure Markers
-plotshape(showSwings and paHH, title="HH", style=shape.triangledown, location=location.abovebar, offset=-swingLength, color=color.lime, size=size.tiny, text="HH")
-plotshape(showSwings and paLH, title="LH", style=shape.triangledown, location=location.abovebar, offset=-swingLength, color=color.red, size=size.tiny, text="LH")
-plotshape(showSwings and paHL, title="HL", style=shape.triangleup, location=location.belowbar, offset=-swingLength, color=color.lime, size=size.tiny, text="HL")
-plotshape(showSwings and paLL, title="LL", style=shape.triangleup, location=location.belowbar, offset=-swingLength, color=color.red, size=size.tiny, text="LL")
+plotshape(showChartMarkers and showSwings and paHH, title="HH", style=shape.triangledown, location=location.abovebar, offset=-swingLength, color=color.lime, size=size.tiny)
+plotshape(showChartMarkers and showSwings and paLH, title="LH", style=shape.triangledown, location=location.abovebar, offset=-swingLength, color=color.red, size=size.tiny)
+plotshape(showChartMarkers and showSwings and paHL, title="HL", style=shape.triangleup, location=location.belowbar, offset=-swingLength, color=color.lime, size=size.tiny)
+plotshape(showChartMarkers and showSwings and paLL, title="LL", style=shape.triangleup, location=location.belowbar, offset=-swingLength, color=color.red, size=size.tiny)
 
 // BOS and CHoCH Markers
-plotshape(paBullBos, title="Bull BOS", style=shape.labelup, location=location.belowbar, color=color.green, text="BOS", size=size.small)
-plotshape(paBearBos, title="Bear BOS", style=shape.labeldown, location=location.abovebar, color=color.red, text="BOS", size=size.small)
-plotshape(paBullChoch, title="Bull CHoCH", style=shape.circle, location=location.belowbar, color=color.blue, size=size.tiny)
-plotshape(paBearChoch, title="Bear CHoCH", style=shape.circle, location=location.abovebar, color=color.orange, size=size.tiny)
+plotshape(showChartMarkers and paBullBos, title="Bull BOS", style=shape.triangleup, location=location.belowbar, color=color.green, size=size.small)
+plotshape(showChartMarkers and paBearBos, title="Bear BOS", style=shape.triangledown, location=location.abovebar, color=color.red, size=size.small)
+plotshape(showChartMarkers and paBullChoch, title="Bull CHoCH", style=shape.circle, location=location.belowbar, color=color.blue, size=size.tiny)
+plotshape(showChartMarkers and paBearChoch, title="Bear CHoCH", style=shape.circle, location=location.abovebar, color=color.orange, size=size.tiny)
 
 // Market Structure Lines
-plot(paMarketState, "Protected High", color=color.orange, linewidth=2, style=plot.style_stepline)
-plot(paProtectedLow, "Protected Low", color=color.aqua, linewidth=2, style=plot.style_stepline)
+plotMarketState = showChartMarkers ? paMarketState : na
+plotProtectedLow = showChartMarkers ? paProtectedLow : na
+plot(plotMarketState, "Protected High", color=color.orange, linewidth=2, style=plot.style_stepline)
+plot(plotProtectedLow, "Protected Low", color=color.aqua, linewidth=2, style=plot.style_stepline)
 
 // Displacement Markers
-plotshape(paBullDisplacement, style=shape.square, color=color.green, size=size.tiny, title="Bull Displacement")
-plotshape(paBearDisplacement, style=shape.square, color=color.red, size=size.tiny, title="Bear Displacement")
+plotshape(showChartMarkers and paBullDisplacement, style=shape.square, color=color.green, size=size.tiny, title="Bull Displacement")
+plotshape(showChartMarkers and paBearDisplacement, style=shape.square, color=color.red, size=size.tiny, title="Bear Displacement")
 
 // FVG Zones
 var box bullFVGBox = na
 var box bearFVGBox = na
 
-if showFVG and detectFVG
+if showChartMarkers and showFVG and detectFVG
     if bullFVG
         if not na(bullFVGBox)
             box.delete(bullFVGBox)
@@ -1116,24 +1084,24 @@ if showFVG and detectFVG
         bearFVGBox := box.new(bar_index - 1, bearFVGTop, bar_index + 5, bearFVGBottom, bgcolor=color.new(color.red, 90), border_color=na)
 
 // Liquidity Zones
-plotRecentHigh = (showLiquidity and detectLiquidity) ? recentHigh : na
-plotRecentLow = (showLiquidity and detectLiquidity) ? recentLow : na
+plotRecentHigh = (showChartMarkers and showLiquidity and detectLiquidity) ? recentHigh : na
+plotRecentLow = (showChartMarkers and showLiquidity and detectLiquidity) ? recentLow : na
 plot(plotRecentHigh, title="Recent High", color=color.new(color.blue, 50), linewidth=1, style=plot.style_circles)
 plot(plotRecentLow, title="Recent Low", color=color.new(color.orange, 50), linewidth=1, style=plot.style_circles)
 
 // 3-Bar Patterns
-plotshape(bullPin, style=shape.triangleup, color=color.lime, size=size.small, title="Bull Pin", location=location.belowbar)
-plotshape(bearPin, style=shape.triangledown, color=color.red, size=size.small, title="Bear Pin", location=location.abovebar)
+plotshape(showChartMarkers and bullPin, style=shape.triangleup, color=color.lime, size=size.tiny, title="Bull Pin", location=location.belowbar)
+plotshape(showChartMarkers and bearPin, style=shape.triangledown, color=color.red, size=size.tiny, title="Bear Pin", location=location.abovebar)
 
-// Entry Signals (with Confluence Score)
-plotshape(paLongSignal, title="Long Entry", style=shape.labelup, location=location.belowbar, color=color.new(color.green, 20), textcolor=color.white, size=size.large, text="LONG")
-plotshape(paShortSignal, title="Short Entry", style=shape.labeldown, location=location.abovebar, color=color.new(color.red, 20), textcolor=color.white, size=size.large, text="SHORT")
+// Entry Signals (clean markers without text)
+plotshape(showEntryExitSignals and paLongSignal, title="Long Entry", style=shape.triangleup, location=location.belowbar, color=color.green, size=size.tiny)
+plotshape(showEntryExitSignals and paShortSignal, title="Short Entry", style=shape.triangledown, location=location.abovebar, color=color.red, size=size.tiny)
 
 // Stop Loss and Take Profit
-plotLongSL = strategy.position_size > 0 ? longStop : na
-plotLongTP = strategy.position_size > 0 ? longTarget : na
-plotShortSL = strategy.position_size < 0 ? shortStop : na
-plotShortTP = strategy.position_size < 0 ? shortTarget : na
+plotLongSL = (showEntryExitSignals and strategy.position_size > 0) ? longStop : na
+plotLongTP = (showEntryExitSignals and strategy.position_size > 0) ? longTarget : na
+plotShortSL = (showEntryExitSignals and strategy.position_size < 0) ? shortStop : na
+plotShortTP = (showEntryExitSignals and strategy.position_size < 0) ? shortTarget : na
 
 plot(plotLongSL, title="Long Stop Loss", color=color.red, linewidth=2, style=plot.style_linebr)
 plot(plotLongTP, title="Long Take Profit", color=color.green, linewidth=2, style=plot.style_linebr)
