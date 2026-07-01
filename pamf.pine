@@ -30,6 +30,16 @@ atrSmooth = input.string("RMA", "ATR Smoothing", options=["RMA", "SMA", "EMA", "
 swingLength = input.int(5, "Swing Length", minval=2, maxval=20, group=groupSwing)
 showSwings = input.bool(true, "Show Swing Labels", group=groupSwing)
 
+groupBos = "BOS Engine"
+
+groupStrategy = "Strategy"
+
+bosBreakMethod = input.string(    "Close",    "Break Confirmation",    options=["Close", "Wick"],    group=groupBos)
+bosAtrFilter = input.bool(true, "Require ATR Impulse", group=groupBos)
+enableStrategy = input.bool(true, "Enable Strategy", group=groupStrategy)
+slAtrMultiplier = input.float(1.0, "Stop Loss ATR", minval=0.25, step=0.25, group=groupStrategy)
+tpAtrMultiplier = input.float(2.0, "Take Profit ATR", minval=0.5, step=0.25, group=groupStrategy)
+
 //-----------------------------------------------------------------------------
 // CONSTANTS
 //-----------------------------------------------------------------------------
@@ -38,15 +48,12 @@ TREND_BULL = 1
 TREND_BEAR = -1
 TREND_RANGE = 0
 
-BOS_NONE = 0
-BOS_BULL = 1
-BOS_BEAR = -1
+SCRIPT_VERSION = "0.1.0"
 
 //-----------------------------------------------------------------------------
 // STATE
 //-----------------------------------------------------------------------------
 
-var int trendState = TREND_RANGE
 var table dash = na
 var float paSwingHigh = na
 var float paSwingLow = na
@@ -76,6 +83,15 @@ var float paLastLL = na
 
 var int paMarketTrend = TREND_RANGE
 
+//-----------------------------------------------------------------------------
+// STRUCTURE STATE
+//-----------------------------------------------------------------------------
+
+var float paProtectedHigh = na
+var float paProtectedLow = na
+
+var int paProtectedHighBar = na
+var int paProtectedLowBar = na
 
 ///-----------------------------------------------------------------------------
 // CANDLE ENGINE
@@ -152,12 +168,9 @@ if paNewSwingHigh
     paSwingHigh := ph
     paSwingHighBar := bar_index - swingLength
 
-    if paHH
-
-        if na(paLastHH)
-            paLastHH := ph
-        else
-            paLastHH := math.max(paLastHH, ph)
+    if paLH and na(paProtectedHigh)
+        paProtectedHigh := ph
+        paProtectedHighBar := bar_index - swingLength
 
 if paNewSwingLow
 
@@ -169,34 +182,83 @@ if paNewSwingLow
     paSwingLow := pl
     paSwingLowBar := bar_index - swingLength
 
-    if paLL
+    if paHL and na(paProtectedLow)
+        paProtectedLow := pl
+        paProtectedLowBar := bar_index - swingLength
 
-        if na(paLastLL)
-            paLastLL := pl
-        else
-            paLastLL := math.min(paLastLL, pl)
+//-----------------------------------------------------------------------------
+// BOS CONDITIONS
+//-----------------------------------------------------------------------------
+
+bullBreak = false
+bearBreak = false
+
+if not na(paProtectedHigh)
+    bullBreak := bosBreakMethod == "Close" ? ta.crossover(close, paProtectedHigh) : high > paProtectedHigh
+
+if not na(paProtectedLow)
+    bearBreak := bosBreakMethod == "Close" ? ta.crossunder(close, paProtectedLow) : low < paProtectedLow
+
+bullValid = bosAtrFilter ? bullBreak and paImpulseBull : bullBreak
+bearValid = bosAtrFilter ? bearBreak and paImpulseBear : bearBreak
 
 //-----------------------------------------------------------------------------
 // BOS ENGINE
 //-----------------------------------------------------------------------------
 
-if not na(paLastHH) and ta.crossover(close, paLastHH)
+if not na(paProtectedHigh)
 
-    paBullBos := true
+    if bullValid
 
-    if paMarketTrend == TREND_BEAR
-        paBullChoch := true
+        paBullBos := true
 
-    paMarketTrend := TREND_BULL
+        if paMarketTrend == TREND_BEAR
+            paBullChoch := true
 
-if not na(paLastLL) and ta.crossunder(close, paLastLL)
+        paMarketTrend := TREND_BULL
 
-    paBearBos := true
+        paProtectedHigh := na
 
-    if paMarketTrend == TREND_BULL
-        paBearChoch := true
+if not na(paProtectedLow)
 
-    paMarketTrend := TREND_BEAR
+    if bearValid
+
+        paBearBos := true
+
+        if paMarketTrend == TREND_BULL
+            paBearChoch := true
+
+        paMarketTrend := TREND_BEAR
+
+        paProtectedLow := na
+
+//-----------------------------------------------------------------------------
+// STRATEGY CONDITIONS
+//-----------------------------------------------------------------------------
+
+longCondition = enableStrategy and paBullBos and strategy.position_size <= 0
+
+shortCondition = enableStrategy and paBearBos and strategy.position_size >= 0
+
+//-----------------------------------------------------------------------------
+// STRATEGY EXECUTION
+//-----------------------------------------------------------------------------
+
+if longCondition
+    strategy.entry("Long", strategy.long)
+
+if shortCondition
+    strategy.entry("Short", strategy.short)
+
+longStop = strategy.position_avg_price - paAtr * slAtrMultiplier
+longTarget = strategy.position_avg_price + paAtr * tpAtrMultiplier
+
+shortStop = strategy.position_avg_price + paAtr * slAtrMultiplier
+shortTarget = strategy.position_avg_price - paAtr * tpAtrMultiplier
+
+strategy.exit("Long Exit", from_entry="Long", stop=longStop, limit=longTarget)
+
+strategy.exit("Short Exit", from_entry="Short", stop=shortStop, limit=shortTarget)
 
 //-----------------------------------------------------------------------------
 // DASHBOARD
@@ -209,16 +271,11 @@ if showDashboard
 
     trendText = paMarketTrend == TREND_BULL ? "Bull" : paMarketTrend == TREND_BEAR ? "Bear" : "Range"
 
-    if trendState == TREND_BULL
-        trendText := "Bull"
-
-    if trendState == TREND_BEAR
-        trendText := "Bear"
 
     if barstate.islastconfirmedhistory or barstate.isrealtime
 
         table.cell(dash, 0, 0, "PA Master")
-        table.cell(dash, 1, 0, "v0.1.0")
+        table.cell(dash, 1, 0, "v" + SCRIPT_VERSION)
 
         table.cell(dash, 0, 1, "Trend")
         table.cell(dash, 1, 1, trendText)
@@ -251,17 +308,6 @@ if showDashboard
 // DEBUG PLOTS
 //-----------------------------------------------------------------------------
 
-bodyPlot = debugMode ? paBody : na
-rangePlot = debugMode ? paRange : na
-bullPowerPlot = debugMode ? paBullPower : na
-bearPowerPlot = debugMode ? paBearPower : na
-
-
-plot(debugMode ? paBody : na, "Body")
-plot(debugMode ? paRange : na, "Range")
-plot(debugMode ? paAtr : na, "ATR")
-plot(debugMode ? paHalfAtr : na, "Half ATR")
-
 plotshape(showSwings and paHH, title="HH", style=shape.triangledown, location=location.abovebar, offset=-swingLength, color=color.lime, size=size.tiny, text="HH")
 plotshape(showSwings and paLH, title="LH", style=shape.triangledown, location=location.abovebar, offset=-swingLength, color=color.red, size=size.tiny, text="LH")
 plotshape(showSwings and paHL, title="HL", style=shape.triangleup, location=location.belowbar, offset=-swingLength, color=color.lime, size=size.tiny, text="HL")
@@ -272,5 +318,5 @@ plotshape(paBearBos, title="Bear BOS", style=shape.labeldown, location=location.
 plotshape(paBullChoch, title="Bull CHoCH", style=shape.circle, location=location.belowbar, color=color.blue, size=size.tiny)
 plotshape(paBearChoch, title="Bear CHoCH", style=shape.circle, location=location.abovebar, color=color.orange, size=size.tiny)
 
-plot(paLastHH, "Bull Structure", color=color.green, linewidth=2, style=plot.style_stepline)
-plot(paLastLL, "Bear Structure", color=color.red, linewidth=2, style=plot.style_stepline)
+plot(paProtectedHigh, "Protected High", color=color.orange, linewidth=2, style=plot.style_stepline)
+plot(paProtectedLow, "Protected Low", color=color.aqua, linewidth=2, style=plot.style_stepline)
