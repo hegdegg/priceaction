@@ -38,6 +38,18 @@ sr_pivot_len    = input.int (20,    "Pivot Length (left & right)",    group = GR
 sr_lookback     = input.int (100,   "Proximity Lookback (bars)",      group = GRP_SR,     minval = 20, maxval = 500)
 show_signals    = input.bool(true,  "Show Entry Signal Arrows",       group = GRP_SIG)
 require_volume  = input.bool(true,  "Require Volume Confirmation",    group = GRP_SIG)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LIQUIDITY DETECTION SETTINGS
+// ─────────────────────────────────────────────────────────────────────────────
+string GRP_LIQ  = "💧 Liquidity Zones"
+show_liq_table  = input.bool(true,  "Show Liquidity in Dashboard",    group = GRP_LIQ)
+show_swing_liq  = input.bool(true,  "Show Swing High/Low Liquidity",  group = GRP_LIQ)
+show_round_nums = input.bool(true,  "Show Round Numbers",             group = GRP_LIQ)
+show_liq_dist   = input.bool(true,  "Show Distance to Liquidity",     group = GRP_LIQ)
+show_liq_str    = input.bool(true,  "Show Liquidity Strength",        group = GRP_LIQ)
+show_consol_liq = input.bool(true,  "Show Consolidation Levels",      group = GRP_LIQ)
+liq_lookback    = input.int(50,     "Liquidity Lookback (bars)",      group = GRP_LIQ,    minval = 10, maxval = 200)
 show_sl_tp      = input.bool(false, "Show SL & TP Lines on Signal",   group = GRP_SIG)
 min_confluence  = input.int (2,     "Min Confluence Score  (1–5)",    group = GRP_SIG,    minval = 1, maxval = 5)
 sl_tp_bars      = input.int (40,    "SL/TP Line Length (bars right)", group = GRP_SIG,    minval = 0, maxval = 300)
@@ -47,11 +59,11 @@ atr_len         = input.int  (14,   "ATR Length",                     group = GR
 auto_sl_tp      = input.bool (true, "Auto SL/TP scale by timeframe",  group = GRP_RISK)
 sl_atr_mult     = input.float(1.0,  "SL ATR Multiplier",              group = GRP_RISK,   minval = 0.1, maxval = 5.0, step = 0.1)
 tp_rr_ratio     = input.float(2.0,  "TP Risk : Reward Ratio",         group = GRP_RISK,   minval = 0.5, maxval = 10.0, step = 0.1)
-tf_5m_sl        = input.float(0.8,  "  5m SL mult (if auto)",         group = GRP_RISK,   minval = 0.5, maxval = 2.0, step = 0.1)
-tf_15m_sl       = input.float(1.0,  "  15m SL mult (if auto)",        group = GRP_RISK,   minval = 0.5, maxval = 2.0, step = 0.1)
-tf_1h_sl        = input.float(1.5,  "  1h SL mult (if auto)",         group = GRP_RISK,   minval = 0.5, maxval = 2.0, step = 0.1)
-tf_4h_sl        = input.float(2.0,  "  4h SL mult (if auto)",         group = GRP_RISK,   minval = 0.5, maxval = 2.0, step = 0.1)
-tf_daily_sl     = input.float(2.5,  "  Daily SL mult (if auto)",      group = GRP_RISK,   minval = 0.5, maxval = 2.0, step = 0.1)
+tf_5m_sl        = input.float(0.8,  "  5m SL mult (if auto)",         group = GRP_RISK,   minval = 0.5, maxval = 3.0, step = 0.1)
+tf_15m_sl       = input.float(1.0,  "  15m SL mult (if auto)",        group = GRP_RISK,   minval = 0.5, maxval = 3.0, step = 0.1)
+tf_1h_sl        = input.float(1.5,  "  1h SL mult (if auto)",         group = GRP_RISK,   minval = 0.5, maxval = 3.0, step = 0.1)
+tf_4h_sl        = input.float(2.0,  "  4h SL mult (if auto)",         group = GRP_RISK,   minval = 0.5, maxval = 3.0, step = 0.1)
+tf_daily_sl     = input.float(2.5,  "  Daily SL mult (if auto)",      group = GRP_RISK,   minval = 0.5, maxval = 3.0, step = 0.1)
 bull_col        = input.color(color.new(#26a69a, 0),  "Bullish Color",      group = GRP_COLOR)
 bear_col        = input.color(color.new(#ef5350, 0),  "Bearish Color",      group = GRP_COLOR)
 choch_col       = input.color(color.new(#9c27b0, 0),  "CHoCH Label Color",  group = GRP_COLOR)
@@ -195,16 +207,16 @@ bool price_in_bear_fvg = bear_fvg[1] and close <= low[3]  and close >= high[1]
 var string last_fvg_txt = "—"
 var color  last_fvg_col = color.gray
 if bull_fvg
-    last_fvg_txt := "Bull FVG formed"
+    last_fvg_txt := "✓ Bull FVG (Support)"
     last_fvg_col := color.new(#2196f3, 0)
 else if bear_fvg
-    last_fvg_txt := "Bear FVG formed"
+    last_fvg_txt := "✗ Bear FVG (Resist)"
     last_fvg_col := color.new(#ff9800, 0)
 if price_in_bull_fvg
-    last_fvg_txt := "✓ Filling Bull FVG"
+    last_fvg_txt := "⬇  Filling Bull FVG"
     last_fvg_col := color.new(#2196f3, 0)
 else if price_in_bear_fvg
-    last_fvg_txt := "✓ Filling Bear FVG"
+    last_fvg_txt := "⬆  Filling Bear FVG"
     last_fvg_col := color.new(#ff9800, 0)
 // ─────────────────────────────────────────────────────────────────────────────
 // 4. CANDLESTICK PATTERNS
@@ -248,14 +260,61 @@ if near_support
     last_sr_txt := "✓  At Support"
     last_sr_col := color.new(#26a69a, 0)
 else if near_resistance
-    last_sr_txt := "✓  At Resist"
+    last_sr_txt := "✗  At Resist"
     last_sr_col := color.new(#ef5350, 0)
 else if not na(highest_pivot) and close < highest_pivot
-    last_sr_txt := "Res: " + str.tostring(math.round(highest_pivot, 1))
+    last_sr_txt := "⬆  Resist above"
     last_sr_col := color.new(color.white, 50)
 else if not na(lowest_pivot) and close > lowest_pivot
-    last_sr_txt := "Sup: " + str.tostring(math.round(lowest_pivot, 1))
+    last_sr_txt := "⬇  Support below"
     last_sr_col := color.new(color.white, 50)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5b. LIQUIDITY ZONES
+// ─────────────────────────────────────────────────────────────────────────────
+// Swing High/Low liquidity - stops above/below swings
+float liq_above_sh = not na(last_sh) ? last_sh + (atr_val * 0.5) : na
+float liq_below_sl = not na(last_sl) ? last_sl - (atr_val * 0.5) : na
+
+// Round numbers - nearest X.00 and X.50 levels
+float price_rounded = math.floor(close * 2) / 2
+float next_round_up = (math.floor(close) + 1.0)
+float next_round_down = math.floor(close)
+float nearest_round = math.abs(close - price_rounded) < math.abs(close - next_round_up) ? price_rounded : next_round_up
+
+// Distance to liquidity
+float dist_to_sh_liq = not na(liq_above_sh) ? math.abs(close - liq_above_sh) : na
+float dist_to_sl_liq = not na(liq_below_sl) ? math.abs(close - liq_below_sl) : na
+float dist_to_round  = math.abs(close - nearest_round)
+float dist_to_resist = not na(highest_pivot) ? math.abs(close - highest_pivot) : na
+float dist_to_support = not na(lowest_pivot) ? math.abs(close - lowest_pivot) : na
+
+// Liquidity strength: count how many levels are clustered
+int liq_strength = 0
+liq_strength += (not na(liq_above_sh) and dist_to_sh_liq < atr_val * 0.5) ? 1 : 0
+liq_strength += (not na(highest_pivot) and dist_to_resist < atr_val * 0.5) ? 1 : 0
+liq_strength += (dist_to_round < atr_val * 0.3) ? 1 : 0
+liq_strength += price_in_bull_ob ? 1 : 0
+liq_strength += price_in_bull_fvg ? 1 : 0
+
+// Previous consolidation (find range in lookback period)
+float consol_high = ta.highest(high, liq_lookback)
+float consol_low = ta.lowest(low, liq_lookback)
+bool near_consol_high = close >= consol_high * 0.995 and close <= consol_high * 1.005
+bool near_consol_low = close <= consol_low * 1.005 and close >= consol_low * 0.995
+
+var string last_liq_txt = "—"
+var color last_liq_col = color.gray
+if liq_strength >= 3
+    last_liq_txt := "🔴 High (" + str.tostring(liq_strength) + ")"
+    last_liq_col := color.new(#ff6b6b, 0)
+else if liq_strength >= 2
+    last_liq_txt := "🟡 Medium (" + str.tostring(liq_strength) + ")"
+    last_liq_col := color.new(#ffd93d, 0)
+else
+    last_liq_txt := "🟢 Low (" + str.tostring(liq_strength) + ")"
+    last_liq_col := color.new(#6bcf7f, 0)
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 6. CONFLUENCE SCORING
 // ─────────────────────────────────────────────────────────────────────────────
@@ -397,7 +456,7 @@ plotshape(show_signals and long_trigger[1],  "Long Signal",  shape.triangleup,  
 plotshape(show_signals and short_trigger[1], "Short Signal", shape.triangledown, location.abovebar, bear_col, size = size.tiny)
 // ─────────────────────────────────────────────────────────────────────────────
 // 10. DASHBOARD TABLE
-// Row layout (14 rows total):
+// Row layout (dynamic based on liquidity settings):
 //   0  — header
 //   1  — Trend
 //   2  — Structure
@@ -408,16 +467,15 @@ plotshape(show_signals and short_trigger[1], "Short Signal", shape.triangledown,
 //   7  — Long Score  (reasons)
 //   8  — Short Score (count)
 //   9  — Short Score (reasons)
-//   10 — ATR
-//   11 — Candle Strength (NEW)
-//   12 — SL / TP
-//   13 — Trade
+//   10 — Candle Strength
+//   11+ — Liquidity rows (if enabled)
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared cell background — solid dark so table is readable on any chart theme
 color _bg  = color.new(#0d1117, 5)   // near-opaque dark navy
 color _dim = color.new(#b0bec5, 0)   // muted blue-grey for inactive values
 color _sub = color.new(#78909c, 0)   // slightly dimmer for reason-row labels
-var table dash = table.new(position = position.top_right, columns = 2, rows = 14, bgcolor = _bg, border_color = color.new(#455a64, 0), border_width = 1, frame_color = color.new(#546e7a, 0), frame_width = 1)
+int table_rows = 11 + (show_liq_table ? 5 : 0)
+var table dash = table.new(position = position.top_right, columns = 2, rows = table_rows, bgcolor = _bg, border_color = color.new(#455a64, 0), border_width = 1, frame_color = color.new(#546e7a, 0), frame_width = 1)
 if show_dashboard and barstate.islast
     // ── Row 0 : header ────────────────────────────────────────────────────────
     table.cell(dash, 0, 0, "PA MASTER", text_color = color.white, bgcolor = color.new(#1565c0, 0), text_size = size.normal, text_halign = text.align_center)
@@ -431,13 +489,14 @@ if show_dashboard and barstate.islast
     table.cell(dash, 0, 2, "Structure",     text_color = color.white,    bgcolor = _bg, text_size = size.normal)
     table.cell(dash, 1, 2, last_struct_txt, text_color = last_struct_col, bgcolor = _bg, text_size = size.normal)
     // ── Row 3 : order block ───────────────────────────────────────────────────
-    string ob_txt = price_in_bull_ob ? "✓  AT Bull OB" : price_in_bear_ob ? "✓  AT Bear OB" : bull_ob_above ? "Bull OB below" : bear_ob_below ? "Bear OB above" : "—"
+    string ob_txt = price_in_bull_ob ? "✓  Bull OB (Support)" : price_in_bear_ob ? "✗  Bear OB (Resist)" : bull_ob_above ? "⬇  Bull OB below" : bear_ob_below ? "⬆  Bear OB above" : "—"
     color  ob_col = price_in_bull_ob ? color.new(#26a69a, 0) : price_in_bear_ob ? color.new(#ef5350, 0) : _dim
     table.cell(dash, 0, 3, "Order Block", text_color = color.white, bgcolor = _bg, text_size = size.normal)
     table.cell(dash, 1, 3, ob_txt,        text_color = ob_col,      bgcolor = _bg, text_size = size.normal)
     // ── Row 4 : FVG ───────────────────────────────────────────────────────────
-    table.cell(dash, 0, 4, "FVG",        text_color = color.white, bgcolor = _bg, text_size = size.normal)
-    table.cell(dash, 1, 4, last_fvg_txt, text_color = last_fvg_col, bgcolor = _bg, text_size = size.normal)
+    string fvg_display = last_fvg_txt == "—" ? "—" : last_fvg_txt
+    table.cell(dash, 0, 4, "FVG",             text_color = color.white, bgcolor = _bg, text_size = size.normal)
+    table.cell(dash, 1, 4, fvg_display,      text_color = last_fvg_col, bgcolor = _bg, text_size = size.normal)
     // ── Row 5 : S/R ───────────────────────────────────────────────────────────
     table.cell(dash, 0, 5, "S / R",     text_color = color.white, bgcolor = _bg, text_size = size.normal)
     table.cell(dash, 1, 5, last_sr_txt, text_color = last_sr_col,  bgcolor = _bg, text_size = size.normal)
@@ -455,25 +514,46 @@ if show_dashboard and barstate.islast
     // ── Row 9 : short score (reasons) ─────────────────────────────────────────
     table.cell(dash, 0, 9, "↳ Reasons",   text_color = _sub, bgcolor = _bg, text_size = size.small)
     table.cell(dash, 1, 9, short_reasons, text_color = short_score >= min_confluence ? color.new(#ef5350, 0) : _dim, bgcolor = _bg, text_size = size.small)
-    // ── Row 10 : ATR ──────────────────────────────────────────────────────────
-    string atr_mode = auto_sl_tp ? " (auto " + str.tostring(eff_sl_mult) + "×)" : " (manual)"
-    table.cell(dash, 0, 10, "ATR" + atr_mode,                     text_color = color.white, bgcolor = _bg, text_size = size.normal)
-    table.cell(dash, 1, 10, str.tostring(math.round(atr_val, 2)), text_color = color.white, bgcolor = _bg, text_size = size.normal)
-    // ── Row 11 : Candle Strength ──────────────────────────────────────────────
+    // ── Row 10 : Candle Strength ──────────────────────────────────────────────
     string cs_txt = close > open ? str.tostring(math.round(bull_strength * 100, 0)) + "% Bull" : close < open ? str.tostring(math.round(bear_strength * 100, 0)) + "% Bear" : "Doji"
     color  cs_col = close > open ? color.new(#26a69a, 0) : close < open ? color.new(#ef5350, 0) : _dim
-    table.cell(dash, 0, 11, "Candle Strength", text_color = color.white, bgcolor = _bg, text_size = size.normal)
-    table.cell(dash, 1, 11, cs_txt,            text_color = cs_col,      bgcolor = _bg, text_size = size.normal)
-    // ── Row 12 : SL / TP ──────────────────────────────────────────────────────
-    string rr_label = "SL/TP  1:" + str.tostring(eff_tp_rr)
-    table.cell(dash, 0, 12, rr_label, text_color = color.white, bgcolor = _bg, text_size = size.normal)
-    table.cell(dash, 1, 12, str.tostring(math.round(sl_dist, 2)) + "  /  " + str.tostring(math.round(tp_dist, 2)), text_color = color.white, bgcolor = _bg, text_size = size.normal)
-    // ── Row 13 : trade state ──────────────────────────────────────────────────
-    string sig_txt = trade_state == 1 ? "⬆  IN LONG" : trade_state == -1 ? "⬇  IN SHORT" : long_trigger ? "⬆  LONG" : short_trigger ? "⬇  SHORT" : "—  Flat"
-    color  sig_tc  = trade_state == 1 ? color.new(#26a69a, 0) : trade_state == -1 ? color.new(#ef5350, 0) : long_trigger ? color.new(#26a69a, 0) : short_trigger ? color.new(#ef5350, 0) : _dim
-    color  sig_bg  = trade_state == 1 ? color.new(#26a69a, 60) : trade_state == -1 ? color.new(#ef5350, 60) : _bg
-    table.cell(dash, 0, 13, "Trade",  text_color = color.white, bgcolor = _bg,  text_size = size.normal)
-    table.cell(dash, 1, 13, sig_txt,  text_color = sig_tc,      bgcolor = sig_bg, text_size = size.normal, text_halign = text.align_center)
+    table.cell(dash, 0, 10, "Candle Strength", text_color = color.white, bgcolor = _bg, text_size = size.normal)
+    table.cell(dash, 1, 10, cs_txt,            text_color = cs_col,      bgcolor = _bg, text_size = size.normal)
+
+    // ── LIQUIDITY ROWS (conditional) ───────────────────────────────────────────
+    if show_liq_table
+        // Row 11: Liquidity Strength
+        if show_liq_str
+            table.cell(dash, 0, 11, "Liquidity Strength", text_color = color.white, bgcolor = _bg, text_size = size.normal)
+            table.cell(dash, 1, 11, last_liq_txt,         text_color = last_liq_col, bgcolor = _bg, text_size = size.normal)
+
+        // Row 12: Swing High/Low Liquidity
+        if show_swing_liq
+            string sh_liq_txt = not na(liq_above_sh) ? "⬆ SH Liq: " + str.tostring(math.round(dist_to_sh_liq, 2)) : "—"
+            string sl_liq_txt = not na(liq_below_sl) ? "⬇ SL Liq: " + str.tostring(math.round(dist_to_sl_liq, 2)) : "—"
+            string swing_liq = sh_liq_txt == "—" ? sl_liq_txt : sh_liq_txt
+            table.cell(dash, 0, 12, "Swing Liquidity",    text_color = color.white, bgcolor = _bg, text_size = size.normal)
+            table.cell(dash, 1, 12, swing_liq,            text_color = _dim,       bgcolor = _bg, text_size = size.normal)
+
+        // Row 13: Round Numbers
+        if show_round_nums
+            string round_txt = "⊙ " + str.tostring(math.round(nearest_round, 2)) + " (" + str.tostring(math.round(dist_to_round, 2)) + ")"
+            table.cell(dash, 0, 13, "Round Numbers",      text_color = color.white, bgcolor = _bg, text_size = size.normal)
+            table.cell(dash, 1, 13, round_txt,            text_color = _dim,       bgcolor = _bg, text_size = size.normal)
+
+        // Row 14: Distance to Liquidity
+        if show_liq_dist
+            string dist_txt = "Resist: " + str.tostring(math.round(dist_to_resist, 2)) + " | Sup: " + str.tostring(math.round(dist_to_support, 2))
+            table.cell(dash, 0, 14, "Distance to Levels", text_color = color.white, bgcolor = _bg, text_size = size.normal)
+            table.cell(dash, 1, 14, dist_txt,            text_color = _dim,       bgcolor = _bg, text_size = size.small)
+
+        // Row 15: Consolidation Levels
+        if show_consol_liq
+            string consol_txt = (near_consol_high ? "✓ At High" : "") + (near_consol_high and near_consol_low ? " | " : "") + (near_consol_low ? "✓ At Low" : "")
+            string consol_display = consol_txt == "" ? "—" : consol_txt
+            table.cell(dash, 0, 15, "Consolidation",      text_color = color.white, bgcolor = _bg, text_size = size.normal)
+            table.cell(dash, 1, 15, consol_display,       text_color = near_consol_high or near_consol_low ? color.new(#ff9800, 0) : _dim, bgcolor = _bg, text_size = size.normal)
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 11. ALERTS
 // ─────────────────────────────────────────────────────────────────────────────
