@@ -20,6 +20,7 @@ groupOB = "Order Block"
 groupBos = "BOS Engine"
 groupStrategy = "Strategy"
 groupDisplacement = "Displacement Engine"
+groupMarket = "Market State"
 
 //-----------------------------------------------------------------------------
 // INPUTS
@@ -65,20 +66,36 @@ requireCloseNearLow = input.bool(
      "Bear Close Near Low",
      group=groupDisplacement)
 
+showMarketState = input.bool(true, "Show Market State", group=groupMarket)
+
+pullbackAtr = input.float(
+     1.0,
+     "Pullback ATR",
+     step=0.25,
+     group=groupMarket)
+
 //-----------------------------------------------------------------------------
 // CONSTANTS
 //-----------------------------------------------------------------------------
-
-TREND_BULL = 1
-TREND_BEAR = -1
-TREND_RANGE = 0
-
 SCRIPT_VERSION = "0.1.0"
+
+
+
+//-----------------------------------------------------------------------------
+// MARKET STATES
+//-----------------------------------------------------------------------------
+
+MARKET_RANGE = 0
+
+MARKET_BULL = 1
+MARKET_BULL_PULLBACK = 2
+
+MARKET_BEAR = -1
+MARKET_BEAR_PULLBACK = -2
 
 //-----------------------------------------------------------------------------
 // STATE
 //-----------------------------------------------------------------------------
-
 var table dash = na
 var float paSwingHigh = na
 var float paSwingLow = na
@@ -106,8 +123,6 @@ var bool paBearChoch = false
 var float paLastHH = na
 var float paLastLL = na
 
-var int paMarketTrend = TREND_RANGE
-
 var bool paLongSignal = false
 var bool paShortSignal = false
 
@@ -127,17 +142,15 @@ var string paLastStructure = "None"
 //-----------------------------------------------------------------------------
 // STRUCTURE STATE
 //-----------------------------------------------------------------------------
-
-var float paProtectedHigh = na
+var float paMarketState = MARKET_RANGE
 var float paProtectedLow = na
 
-var int paProtectedHighBar = na
+var int paMarketStateBar = na
 var int paProtectedLowBar = na
 
 ///-----------------------------------------------------------------------------
 // CANDLE ENGINE
 //-----------------------------------------------------------------------------
-
 paOpen = open
 paHigh = high
 paLow = low
@@ -165,7 +178,6 @@ paTypical = (paHigh + paLow + paClose) / 3.0
 //-----------------------------------------------------------------------------
 // ATR ENGINE
 //-----------------------------------------------------------------------------
-
 trueRange = ta.tr(true)
 
 paAtr = atrSmooth == "SMA" ? ta.sma(trueRange, atrLength) : atrSmooth == "EMA" ? ta.ema(trueRange, atrLength) : atrSmooth == "WMA" ? ta.wma(trueRange, atrLength) : ta.rma(trueRange, atrLength)
@@ -181,7 +193,6 @@ paImpulseBear = paBearish and paBody >= paHalfAtr
 //-----------------------------------------------------------------------------
 // SWING ENGINE
 //-----------------------------------------------------------------------------
-
 paBullBos := false
 paBearBos := false
 
@@ -209,9 +220,9 @@ if paNewSwingHigh
     paSwingHigh := ph
     paSwingHighBar := bar_index - swingLength
 
-    if paLH and na(paProtectedHigh)
-        paProtectedHigh := ph
-        paProtectedHighBar := bar_index - swingLength
+    if paLH and na(paMarketState)
+        paMarketState := ph
+        paMarketStateBar := bar_index - swingLength
 
 if paNewSwingLow
 
@@ -230,12 +241,11 @@ if paNewSwingLow
 //-----------------------------------------------------------------------------
 // BOS CONDITIONS
 //-----------------------------------------------------------------------------
-
 bullBreak = false
 bearBreak = false
 
-if not na(paProtectedHigh)
-    bullBreak := bosBreakMethod == "Close" ? ta.crossover(close, paProtectedHigh) : high > paProtectedHigh
+if not na(paMarketState)
+    bullBreak := bosBreakMethod == "Close" ? ta.crossover(close, paMarketState) : high > paMarketState
 
 if not na(paProtectedLow)
     bearBreak := bosBreakMethod == "Close" ? ta.crossunder(close, paProtectedLow) : low < paProtectedLow
@@ -246,19 +256,18 @@ bearValid = bosAtrFilter ? bearBreak and paImpulseBear : bearBreak
 //-----------------------------------------------------------------------------
 // BOS ENGINE
 //-----------------------------------------------------------------------------
-
-if not na(paProtectedHigh)
+if not na(paMarketState)
 
     if bullValid
 
         paBullBos := true
 
-        if paMarketTrend == TREND_BEAR
+        if paMarketState == MARKET_BEAR
             paBullChoch := true
 
-        paMarketTrend := TREND_BULL
+        paMarketState := MARKET_BULL
 
-        paProtectedHigh := na
+        paMarketState := na
 
 if not na(paProtectedLow)
 
@@ -266,12 +275,55 @@ if not na(paProtectedLow)
 
         paBearBos := true
 
-        if paMarketTrend == TREND_BULL
+        if paMarketState == MARKET_BULL
             paBearChoch := true
 
-        paMarketTrend := TREND_BEAR
+        paMarketState := MARKET_BEAR
 
         paProtectedLow := na
+
+//-----------------------------------------------------------------------------
+// MARKET STATE ENGINE
+//-----------------------------------------------------------------------------
+if paBullBos
+    paMarketState := MARKET_BULL
+
+if paBearBos
+    paMarketState := MARKET_BEAR
+
+if paMarketState == MARKET_BULL
+
+    if close < ta.ema(close,20)
+
+        if paAtr > 0
+
+            if (ta.ema(close,20) - close) > paAtr * pullbackAtr
+
+                paMarketState := MARKET_BULL_PULLBACK
+
+if paMarketState == MARKET_BEAR
+
+    if close > ta.ema(close,20)
+
+        if paAtr > 0
+
+            if (close - ta.ema(close,20)) > paAtr * pullbackAtr
+
+                paMarketState := MARKET_BEAR_PULLBACK
+
+if paMarketState == MARKET_BULL_PULLBACK
+
+    if paBullBos
+
+        paMarketState := MARKET_BULL
+
+if paMarketState == MARKET_BEAR_PULLBACK
+
+    if paBearBos
+
+        paMarketState := MARKET_BEAR
+
+
 
 //-----------------------------------------------------------------------------
 // ENTRY ENGINE
@@ -443,9 +495,20 @@ if showDashboard
     if na(dash)
         dash := table.new(position.top_right, 2, 15)
 
-    trendText = paMarketTrend == TREND_BULL ? "Bull" : paMarketTrend == TREND_BEAR ? "Bear" : "Range"
 
-    trendColor = paMarketTrend == TREND_BULL ? tableBull : paMarketTrend == TREND_BEAR ? tableBear : tableNeutral
+    stateText =
+     paMarketState == MARKET_BULL ? "Bull Trend" :
+     paMarketState == MARKET_BULL_PULLBACK ? "Bull Pullback" :
+     paMarketState == MARKET_BEAR ? "Bear Trend" :
+     paMarketState == MARKET_BEAR_PULLBACK ? "Bear Pullback" :
+     "Range"
+
+    stateColor =
+     paMarketState == MARKET_BULL ? tableBull :
+     paMarketState == MARKET_BULL_PULLBACK ? color.teal :
+     paMarketState == MARKET_BEAR ? tableBear :
+     paMarketState == MARKET_BEAR_PULLBACK ? color.orange :
+     tableNeutral
 
     structureText = paBullBos ? "Bull BOS" : paBearBos ? "Bear BOS" : "None"
     structureColor = paBullBos ? tableBull : paBearBos ? tableBear : tableNeutral
@@ -460,8 +523,8 @@ if showDashboard
         table.cell(dash,1,0,"v0.1.0",bgcolor=tableHeader,text_color=tableText)
 
         // Trend
-        table.cell(dash,0,1,"Trend",bgcolor=tableLabel,text_color=tableText)
-        table.cell(dash,1,1,trendText,bgcolor=trendColor,text_color=tableText)
+        table.cell(dash,0,1,"State",bgcolor=tableLabel,text_color=tableText)
+        table.cell(dash,1,1,stateText,bgcolor=stateColor,text_color=tableText)
 
         // Structure
         table.cell(dash,0,2,"Structure",bgcolor=tableLabel,text_color=tableText)
@@ -529,7 +592,7 @@ plotshape(paBearBos, title="Bear BOS", style=shape.labeldown, location=location.
 plotshape(paBullChoch, title="Bull CHoCH", style=shape.circle, location=location.belowbar, color=color.blue, size=size.tiny)
 plotshape(paBearChoch, title="Bear CHoCH", style=shape.circle, location=location.abovebar, color=color.orange, size=size.tiny)
 
-plot(paProtectedHigh, "Protected High", color=color.orange, linewidth=2, style=plot.style_stepline)
+plot(paMarketState, "Protected High", color=color.orange, linewidth=2, style=plot.style_stepline)
 plot(paProtectedLow, "Protected Low", color=color.aqua, linewidth=2, style=plot.style_stepline)
 
 plotshape(    paBullDisplacement,    style=shape.square,    color=color.green,    size=size.tiny)
