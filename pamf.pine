@@ -10,7 +10,6 @@ strategy("PA Master Framework", shorttitle="PAMF", overlay=true, pyramiding=0, i
 //-----------------------------------------------------------------------------
 // INPUT GROUPS
 //-----------------------------------------------------------------------------
-
 groupGeneral = "General"
 groupDashboard = "Dashboard"
 groupDebug = "Debug"
@@ -20,6 +19,7 @@ groupEntry = "Entry Engine"
 groupOB = "Order Block"
 groupBos = "BOS Engine"
 groupStrategy = "Strategy"
+groupDisplacement = "Displacement Engine"
 
 //-----------------------------------------------------------------------------
 // INPUTS
@@ -48,6 +48,22 @@ useImpulseFilter = input.bool(true, "Require Impulse Candle", group=groupEntry)
 
 showOrderBlocks = input.bool(true, "Show Order Blocks", group=groupOB)
 maxOrderBlocks = input.int(     20,     "Maximum Blocks",     minval=5,     maxval=100,     group=groupOB)
+
+displacementATR = input.float(
+     1.2,
+     "Minimum Body ATR",
+     step=0.1,
+     group=groupDisplacement)
+
+requireCloseNearHigh = input.bool(
+     true,
+     "Bull Close Near High",
+     group=groupDisplacement)
+
+requireCloseNearLow = input.bool(
+     true,
+     "Bear Close Near Low",
+     group=groupDisplacement)
 
 //-----------------------------------------------------------------------------
 // CONSTANTS
@@ -105,6 +121,8 @@ var float bullOBLow = na
 
 var float bearOBHigh = na
 var float bearOBLow = na
+
+var string paLastStructure = "None"
 
 //-----------------------------------------------------------------------------
 // STRUCTURE STATE
@@ -356,6 +374,22 @@ if not na(bearOB)
 
         bearOB := na
 
+//-----------------------------------------------------------------------------
+// DISPLACEMENT ENGINE
+//-----------------------------------------------------------------------------
+bullBodyOK = paBody >= paAtr * displacementATR
+
+bullCloseOK = close >= high - paRange * 0.20
+
+paBullDisplacement =    paBullish and    bullBodyOK and    bullCloseOK
+
+bearBodyOK = paBody >= paAtr * displacementATR
+
+bearCloseOK = close <= low + paRange * 0.20
+
+paBearDisplacement =    paBearish and   bearBodyOK and    bearCloseOK
+
+
 
 //-----------------------------------------------------------------------------
 // STRATEGY CONDITIONS
@@ -497,3 +531,6 @@ plotshape(paBearChoch, title="Bear CHoCH", style=shape.circle, location=location
 
 plot(paProtectedHigh, "Protected High", color=color.orange, linewidth=2, style=plot.style_stepline)
 plot(paProtectedLow, "Protected Low", color=color.aqua, linewidth=2, style=plot.style_stepline)
+
+plotshape(    paBullDisplacement,    style=shape.square,    color=color.green,    size=size.tiny)
+plotshape(    paBearDisplacement,    style=shape.square,    color=color.red,    size=size.tiny)

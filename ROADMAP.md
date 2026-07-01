@@ -1,33 +1,20 @@
 # PA Master Framework Roadmap
 
-## v0.1.0
-- [x] Framework
+✓ Candle Engine
+✓ ATR Engine
+✓ Swing Engine
+✓ Structure Engine
+✓ BOS Engine
+✓ Entry Engine
+✓ Strategy Engine
 
-## v0.2.0
-- [ ] Utility Library
+NEXT
 
-## v0.3.0
-- [ ] Swing Engine
-
-## v0.4.0
-- [ ] Market Structure
-
-## v0.5.0
-- [ ] Liquidity
-
-## v0.6.0
-- [ ] Order Blocks
-
-## v0.7.0
-- [ ] Fair Value Gaps
-
-## v0.8.0
-- [ ] Trend Engine
-
-## v0.9.0
-- [ ] Probability Engine
-
-## v1.0.0
-- [ ] Strategy Release
-
-
+1. Market State Engine
+2. Displacement Engine
+3. Order Block Engine
+4. Fair Value Gap Engine
+5. Liquidity Engine
+6. Premium/Discount Engine
+7. Confluence Engine
+8. Trade Manager
