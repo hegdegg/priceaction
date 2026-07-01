@@ -34,7 +34,7 @@ groupTimeframe = "Multi-Timeframe"
 showDashboard = input.bool(true, "Show Dashboard", group=groupDashboard)
 debugMode = input.bool(false, "Debug Mode", group=groupDebug)
 
-selectedTimeframe = input.string("15", "Current Timeframe", options=["1", "5", "15", "30", "60", "240", "1D"], group=groupTimeframe)
+selectedTimeframe = input.string("5", "Current Timeframe", options=["1", "5", "15", "30", "60", "240", "1D"], group=groupTimeframe)
 showMTFAnalysis = input.bool(true, "Show MTF Analysis", group=groupTimeframe)
 
 //-----------------------------------------------------------------------------
@@ -48,7 +48,7 @@ atrSmooth = input.string("RMA", "ATR Smoothing", options=["RMA", "SMA", "EMA", "
 // INPUTS - SWING & STRUCTURE
 //-----------------------------------------------------------------------------
 
-swingLength = input.int(5, "Swing Length", minval=2, maxval=20, group=groupSwing)
+swingLength = input.int(15, "Swing Length", minval=2, maxval=20, group=groupSwing)
 showSwings = input.bool(true, "Show Swing Labels", group=groupSwing)
 
 
@@ -562,6 +562,33 @@ var float shortStop = na
 var float shortTarget = na
 
 //-----------------------------------------------------------------------------
+// PARTIAL PROFIT & TRAILING STOPS
+//-----------------------------------------------------------------------------
+var float longFirstTarget = na
+var float shortFirstTarget = na
+var bool longPartialTaken = false
+var bool shortPartialTaken = false
+
+var float longTrailingStop = na
+var float shortTrailingStop = na
+
+var int barsInLongTrend = 0
+var int barsInShortTrend = 0
+
+var float lastBullBosPrice = na
+var float lastBearBosPrice = na
+
+//-----------------------------------------------------------------------------
+// PULLBACK DETECTION
+//-----------------------------------------------------------------------------
+var bool inLongTrend = false
+var bool inShortTrend = false
+var float trendHighInLong = na
+var float trendLowInShort = na
+
+pullbackThreshold = paAtr * 0.5
+
+//-----------------------------------------------------------------------------
 // CONFLUENCE SCORING ENGINE
 //-----------------------------------------------------------------------------
 longConfluence = 0.0
@@ -763,12 +790,42 @@ if shortCondition
     strategy.entry("Short", strategy.short)
 
 if strategy.position_size > 0
-    longStop := strategy.position_avg_price - paAtr * slAtrMultiplier
+    longStop := longTrailingStop
     longTarget := strategy.position_avg_price + paAtr * tpAtrMultiplier
 
+    // Initialize partial profit levels on first bar of trade
+    if longFirstTarget == na or na(longFirstTarget)
+        longFirstTarget := strategy.position_avg_price + paAtr * 1.0
+        longTrailingStop := strategy.position_avg_price - paAtr * slAtrMultiplier
+        longPartialTaken := false
+        inLongTrend := true
+        barsInLongTrend := 0
+        lastBullBosPrice := strategy.position_avg_price
+
+    // Update trailing stop (lock in profits)
+    if high > (lastBullBosPrice + paAtr * 0.5)
+        longTrailingStop := math.max(longTrailingStop, high - paAtr * 0.75)
+
+    barsInLongTrend += 1
+
 if strategy.position_size < 0
-    shortStop := strategy.position_avg_price + paAtr * slAtrMultiplier
+    shortStop := shortTrailingStop
     shortTarget := strategy.position_avg_price - paAtr * tpAtrMultiplier
+
+    // Initialize partial profit levels on first bar of trade
+    if shortFirstTarget == na or na(shortFirstTarget)
+        shortFirstTarget := strategy.position_avg_price - paAtr * 1.0
+        shortTrailingStop := strategy.position_avg_price + paAtr * slAtrMultiplier
+        shortPartialTaken := false
+        inShortTrend := true
+        barsInShortTrend := 0
+        lastBearBosPrice := strategy.position_avg_price
+
+    // Update trailing stop (lock in profits)
+    if low < (lastBearBosPrice - paAtr * 0.5)
+        shortTrailingStop := math.min(shortTrailingStop, low + paAtr * 0.75)
+
+    barsInShortTrend += 1
 
 strategy.exit("Long Exit", from_entry="Long", stop=longStop, limit=longTarget)
 
