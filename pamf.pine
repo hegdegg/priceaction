@@ -16,6 +16,7 @@ groupDashboard = "Dashboard"
 groupDebug = "Debug"
 groupSwing = "Swing Engine"
 groupAtr = "ATR Engine"
+groupEntry = "Entry Engine"
 
 //-----------------------------------------------------------------------------
 // INPUTS
@@ -39,6 +40,11 @@ bosAtrFilter = input.bool(true, "Require ATR Impulse", group=groupBos)
 enableStrategy = input.bool(true, "Enable Strategy", group=groupStrategy)
 slAtrMultiplier = input.float(1.0, "Stop Loss ATR", minval=0.25, step=0.25, group=groupStrategy)
 tpAtrMultiplier = input.float(2.0, "Take Profit ATR", minval=0.5, step=0.25, group=groupStrategy)
+
+enableLong = input.bool(true, "Enable Long", group=groupEntry)
+enableShort = input.bool(true, "Enable Short", group=groupEntry)
+
+useImpulseFilter = input.bool(true, "Require Impulse Candle", group=groupEntry)
 
 //-----------------------------------------------------------------------------
 // CONSTANTS
@@ -82,6 +88,11 @@ var float paLastHH = na
 var float paLastLL = na
 
 var int paMarketTrend = TREND_RANGE
+
+var bool paLongSignal = false
+var bool paShortSignal = false
+
+var string paEntryReason = ""
 
 //-----------------------------------------------------------------------------
 // STRUCTURE STATE
@@ -233,12 +244,46 @@ if not na(paProtectedLow)
         paProtectedLow := na
 
 //-----------------------------------------------------------------------------
+// ENTRY ENGINE
+//-----------------------------------------------------------------------------
+paLongSignal := false
+paShortSignal := false
+
+paEntryReason := ""
+
+if enableLong
+
+    if paBullBos
+
+        bool valid = true
+
+        if useImpulseFilter
+            valid := valid and paImpulseBull
+
+        if valid
+            paLongSignal := true
+            paEntryReason := "Bull BOS"
+
+if enableShort
+
+    if paBearBos
+
+        bool valid = true
+
+        if useImpulseFilter
+            valid := valid and paImpulseBear
+
+        if valid
+            paShortSignal := true
+            paEntryReason := "Bear BOS"
+
+
+//-----------------------------------------------------------------------------
 // STRATEGY CONDITIONS
 //-----------------------------------------------------------------------------
 
-longCondition = enableStrategy and paBullBos and strategy.position_size <= 0
-
-shortCondition = enableStrategy and paBearBos and strategy.position_size >= 0
+longCondition =    enableStrategy and    paLongSignal and    strategy.position_size <= 0
+shortCondition =    enableStrategy and    paShortSignal and    strategy.position_size >= 0
 
 //-----------------------------------------------------------------------------
 // STRATEGY EXECUTION
@@ -298,8 +343,8 @@ if showDashboard
         table.cell(dash, 0, 7, "ATR")
         table.cell(dash, 1, 7, str.tostring(paAtr))
 
-        table.cell(dash, 0, 8, "Impulse")
-        table.cell(dash, 1, 8, paImpulseBull ? "Bull" : paImpulseBear ? "Bear" : "No")
+        table.cell(dash,0,8,"Entry")
+        table.cell(dash,1,8,paEntryReason == "" ? "None" : paEntryReason)
 
         table.cell(dash, 0, 9, "Large Body")
         table.cell(dash, 1, 9, paLargeBody ? "Yes" : "No")
