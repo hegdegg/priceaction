@@ -306,48 +306,101 @@ strategy.exit("Long Exit", from_entry="Long", stop=longStop, limit=longTarget)
 strategy.exit("Short Exit", from_entry="Short", stop=shortStop, limit=shortTarget)
 
 //-----------------------------------------------------------------------------
+// DASHBOARD COLORS
+//-----------------------------------------------------------------------------
+
+tableHeader = color.rgb(35,35,35)
+tableLabel = color.rgb(55,55,55)
+tableValue = color.rgb(20,20,20)
+
+tableBull = color.rgb(0,140,60)
+tableBear = color.rgb(180,40,40)
+tableNeutral = color.rgb(80,80,80)
+tableWaiting = color.rgb(180,120,0)
+
+tableText = color.white
+
+
+//-----------------------------------------------------------------------------
 // DASHBOARD
 //-----------------------------------------------------------------------------
 
 if showDashboard
 
     if na(dash)
-        dash := table.new(position.top_right, 2, 10)
+        dash := table.new(position.top_right, 2, 15)
 
     trendText = paMarketTrend == TREND_BULL ? "Bull" : paMarketTrend == TREND_BEAR ? "Bear" : "Range"
 
+    trendColor = paMarketTrend == TREND_BULL ? tableBull : paMarketTrend == TREND_BEAR ? tableBear : tableNeutral
+
+    structureText = paBullBos ? "Bull BOS" : paBearBos ? "Bear BOS" : "None"
+    structureColor = paBullBos ? tableBull : paBearBos ? tableBear : tableNeutral
+
+    entryText = paEntryReason == "" ? "Waiting" : paEntryReason
+    entryColor = paEntryReason == "" ? tableWaiting : paBullBos ? tableBull : tableBear
 
     if barstate.islastconfirmedhistory or barstate.isrealtime
 
-        table.cell(dash, 0, 0, "PA Master")
-        table.cell(dash, 1, 0, "v" + SCRIPT_VERSION)
+        // Header
+        table.cell(dash,0,0,"PA Master",bgcolor=tableHeader,text_color=tableText)
+        table.cell(dash,1,0,"v0.1.0",bgcolor=tableHeader,text_color=tableText)
 
-        table.cell(dash, 0, 1, "Trend")
-        table.cell(dash, 1, 1, trendText)
+        // Trend
+        table.cell(dash,0,1,"Trend",bgcolor=tableLabel,text_color=tableText)
+        table.cell(dash,1,1,trendText,bgcolor=trendColor,text_color=tableText)
 
-        table.cell(dash, 0, 2, "Bull")
-        table.cell(dash, 1, 2, paBullish ? "Yes" : "No")
+        // Structure
+        table.cell(dash,0,2,"Structure",bgcolor=tableLabel,text_color=tableText)
+        table.cell(dash,1,2,structureText,bgcolor=structureColor,text_color=tableText)
 
-        table.cell(dash, 0, 3, "Bear")
-        table.cell(dash, 1, 3, paBearish ? "Yes" : "No")
+        // Entry
+        table.cell(dash,0,3,"Entry",bgcolor=tableLabel,text_color=tableText)
+        table.cell(dash,1,3,entryText,bgcolor=entryColor,text_color=tableText)
 
-        table.cell(dash, 0, 4, "Body")
-        table.cell(dash, 1, 4, str.tostring(paBody))
+        // Candle
+        table.cell(dash,0,4,"Candle",bgcolor=tableLabel,text_color=tableText)
+        table.cell(dash,1,4,paBullish ? "Bull" : "Bear",bgcolor=paBullish ? tableBull : tableBear,text_color=tableText)
 
-        table.cell(dash, 0, 5, "Range")
-        table.cell(dash, 1, 5, str.tostring(paRange))
+        // ATR
+        table.cell(dash,0,5,"ATR",bgcolor=tableLabel,text_color=tableText)
+        table.cell(dash,1,5,str.tostring(paAtr,"#.##"),bgcolor=tableValue,text_color=tableText)
 
-        table.cell(dash, 0, 6, "Doji")
-        table.cell(dash, 1, 6, paDoji ? "Yes" : "No")
+        // Body
+        table.cell(dash,0,6,"Body",bgcolor=tableLabel,text_color=tableText)
+        table.cell(dash,1,6,str.tostring(paBody,"#.##"),bgcolor=tableValue,text_color=tableText)
 
-        table.cell(dash, 0, 7, "ATR")
-        table.cell(dash, 1, 7, str.tostring(paAtr))
+        // Range
+        table.cell(dash,0,7,"Range",bgcolor=tableLabel,text_color=tableText)
+        table.cell(dash,1,7,str.tostring(paRange,"#.##"),bgcolor=tableValue,text_color=tableText)
 
-        table.cell(dash,0,8,"Entry")
-        table.cell(dash,1,8,paEntryReason == "" ? "None" : paEntryReason)
+        // Impulse
+        table.cell(dash,0,8,"Impulse",bgcolor=tableLabel,text_color=tableText)
+        table.cell(dash,1,8,paImpulseBull ? "Bull" : paImpulseBear ? "Bear" : "No",bgcolor=paImpulseBull ? tableBull : paImpulseBear ? tableBear : tableNeutral,text_color=tableText)
 
-        table.cell(dash, 0, 9, "Large Body")
-        table.cell(dash, 1, 9, paLargeBody ? "Yes" : "No")
+        // Large Body
+        table.cell(dash,0,9,"Large Body",bgcolor=tableLabel,text_color=tableText)
+        table.cell(dash,1,9,paLargeBody ? "Yes" : "No",bgcolor=paLargeBody ? tableBull : tableNeutral,text_color=tableText)
+
+        // Order Block
+        table.cell(dash,0,10,"Order Block",bgcolor=tableLabel,text_color=tableText)
+        table.cell(dash,1,10,"-",bgcolor=tableValue,text_color=tableText)
+
+        // FVG
+        table.cell(dash,0,11,"FVG",bgcolor=tableLabel,text_color=tableText)
+        table.cell(dash,1,11,"-",bgcolor=tableValue,text_color=tableText)
+
+        // Liquidity
+        table.cell(dash,0,12,"Liquidity",bgcolor=tableLabel,text_color=tableText)
+        table.cell(dash,1,12,"-",bgcolor=tableValue,text_color=tableText)
+
+        // Position
+        table.cell(dash,0,13,"Position",bgcolor=tableLabel,text_color=tableText)
+        table.cell(dash,1,13,str.tostring(strategy.position_size),bgcolor=tableValue,text_color=tableText)
+
+        // PnL
+        table.cell(dash,0,14,"Net PnL",bgcolor=tableLabel,text_color=tableText)
+        table.cell(dash,1,14,str.tostring(strategy.netprofit,"#.##"),bgcolor=strategy.netprofit >= 0 ? tableBull : tableBear,text_color=tableText)
 
 //-----------------------------------------------------------------------------
 // DEBUG PLOTS
