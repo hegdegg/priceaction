@@ -794,7 +794,7 @@ if strategy.position_size > 0
     longTarget := strategy.position_avg_price + paAtr * tpAtrMultiplier
 
     // Initialize partial profit levels on first bar of trade
-    if longFirstTarget == na or na(longFirstTarget)
+    if na(longFirstTarget)
         longFirstTarget := strategy.position_avg_price + paAtr * 1.0
         longTrailingStop := strategy.position_avg_price - paAtr * slAtrMultiplier
         longPartialTaken := false
@@ -813,7 +813,7 @@ if strategy.position_size < 0
     shortTarget := strategy.position_avg_price - paAtr * tpAtrMultiplier
 
     // Initialize partial profit levels on first bar of trade
-    if shortFirstTarget == na or na(shortFirstTarget)
+    if na(shortFirstTarget)
         shortFirstTarget := strategy.position_avg_price - paAtr * 1.0
         shortTrailingStop := strategy.position_avg_price + paAtr * slAtrMultiplier
         shortPartialTaken := false
@@ -827,9 +827,77 @@ if strategy.position_size < 0
 
     barsInShortTrend += 1
 
+//-----------------------------------------------------------------------------
+// PARTIAL PROFIT TAKING & EXITS
+//-----------------------------------------------------------------------------
+
+// LONG: Partial profit at first target
+if strategy.position_size > 0 and close >= longFirstTarget and not longPartialTaken
+    strategy.close("Long", qty=strategy.position_size * 0.5, comment="Partial TP")
+    longPartialTaken := true
+
+// SHORT: Partial profit at first target
+if strategy.position_size < 0 and close <= shortFirstTarget and not shortPartialTaken
+    strategy.close("Short", qty=math.abs(strategy.position_size) * 0.5, comment="Partial TP")
+    shortPartialTaken := true
+
+// LONG: Full exit with trailing stop or take profit
 strategy.exit("Long Exit", from_entry="Long", stop=longStop, limit=longTarget)
 
+// SHORT: Full exit with trailing stop or take profit
 strategy.exit("Short Exit", from_entry="Short", stop=shortStop, limit=shortTarget)
+
+//-----------------------------------------------------------------------------
+// PULLBACK RE-ENTRY DETECTION
+//-----------------------------------------------------------------------------
+
+// Detect pullback in long trend
+pullbackInLong = inLongTrend and barsInLongTrend > 3 and close < lastBullBosPrice and paBearish and paImpulseBear
+longPullbackEntry = pullbackInLong and longConfluence >= 2 and paMarketState == MARKET_BULL
+
+// Detect pullback in short trend
+pullbackInShort = inShortTrend and barsInShortTrend > 3 and close > lastBearBosPrice and paBullish and paImpulseBull
+shortPullbackEntry = pullbackInShort and shortConfluence >= 2 and paMarketState == MARKET_BEAR
+
+//-----------------------------------------------------------------------------
+// PULLBACK RE-ENTRIES
+//-----------------------------------------------------------------------------
+
+if enableLong and longPullbackEntry and strategy.position_size <= 0 and not longCooldown
+    strategy.entry("Long Pullback", strategy.long, comment="Pullback Re-entry")
+    inLongTrend := true
+    barsInLongTrend := 0
+    longPartialTaken := false
+    longFirstTarget := close + paAtr * 1.0
+    longTrailingStop := close - paAtr * slAtrMultiplier
+    lastBullBosPrice := close
+    lastLongBar := bar_index
+
+if enableShort and shortPullbackEntry and strategy.position_size >= 0 and not shortCooldown
+    strategy.entry("Short Pullback", strategy.short, comment="Pullback Re-entry")
+    inShortTrend := true
+    barsInShortTrend := 0
+    shortPartialTaken := false
+    shortFirstTarget := close - paAtr * 1.0
+    shortTrailingStop := close + paAtr * slAtrMultiplier
+    lastBearBosPrice := close
+    lastShortBar := bar_index
+
+//-----------------------------------------------------------------------------
+// RESET TREND AFTER EXIT
+//-----------------------------------------------------------------------------
+
+if strategy.position_size == 0
+    inLongTrend := false
+    inShortTrend := false
+    barsInLongTrend := 0
+    barsInShortTrend := 0
+    longFirstTarget := na
+    shortFirstTarget := na
+    longPartialTaken := false
+    shortPartialTaken := false
+    longTrailingStop := na
+    shortTrailingStop := na
 
 //-----------------------------------------------------------------------------
 // DASHBOARD COLORS
@@ -866,7 +934,7 @@ mtf3Trend = request.security(syminfo.tickerid, "D", paMarketState)
 if showDashboard
 
     if na(dash)
-        dash := table.new(position.top_right, 2, 20)
+        dash := table.new(position.top_right, 2, 24)
 
 
     stateText =
@@ -981,6 +1049,29 @@ if showDashboard
         winRate = strategy.wintrades + strategy.losstrades > 0 ? (strategy.wintrades / (strategy.wintrades + strategy.losstrades)) * 100 : 0
         table.cell(dash,0,19,"Win Rate",bgcolor=tableLabel,text_color=tableText)
         table.cell(dash,1,19,str.tostring(winRate, "#.##") + "%",bgcolor=tableValue,text_color=tableText)
+
+        // === ADVANCED FEATURES ===
+        // Partial Profit Status
+        table.cell(dash,0,20,"Partial TP",bgcolor=tableLabel,text_color=tableText)
+        ptpStatus = strategy.position_size > 0 and longPartialTaken ? "✓ Taken" : strategy.position_size < 0 and shortPartialTaken ? "✓ Taken" : strategy.position_size != 0 ? "Pending" : "-"
+        ptpColor = (longPartialTaken or shortPartialTaken) ? tableBull : strategy.position_size != 0 ? tableWaiting : tableNeutral
+        table.cell(dash,1,20,ptpStatus,bgcolor=ptpColor,text_color=tableText)
+
+        // Trailing Stop Status
+        table.cell(dash,0,21,"Trailing SL",bgcolor=tableLabel,text_color=tableText)
+        tsStatus = strategy.position_size > 0 ? str.tostring(longTrailingStop, "#.##") : strategy.position_size < 0 ? str.tostring(shortTrailingStop, "#.##") : "-"
+        table.cell(dash,1,21,tsStatus,bgcolor=tableValue,text_color=tableText)
+
+        // Trend Status
+        table.cell(dash,0,22,"Trend",bgcolor=tableLabel,text_color=tableText)
+        trendStatus = inLongTrend ? "Bull (" + str.tostring(barsInLongTrend) + ")" : inShortTrend ? "Bear (" + str.tostring(barsInShortTrend) + ")" : "None"
+        trendColor = inLongTrend ? tableBull : inShortTrend ? tableBear : tableNeutral
+        table.cell(dash,1,22,trendStatus,bgcolor=trendColor,text_color=tableText)
+
+        // First Target
+        table.cell(dash,0,23,"1st Target",bgcolor=tableLabel,text_color=tableText)
+        ftText = strategy.position_size > 0 ? str.tostring(longFirstTarget, "#.##") : strategy.position_size < 0 ? str.tostring(shortFirstTarget, "#.##") : "-"
+        table.cell(dash,1,23,ftText,bgcolor=tableValue,text_color=tableText)
 
 //-----------------------------------------------------------------------------
 // VISUALIZATIONS
