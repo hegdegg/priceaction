@@ -620,8 +620,8 @@ paShortSignal := false
 paEntryReason := ""
 
 // Risk/Reward Validation
-longRR = (longTarget - strategy.position_avg_price) / (strategy.position_avg_price - longStop) if not na(longTarget) and not na(longStop) else 0
-shortRR = (strategy.position_avg_price - shortTarget) / (shortStop - strategy.position_avg_price) if not na(shortTarget) and not na(shortStop) else 0
+longRR = (not na(longTarget) and not na(longStop)) ? ((longTarget - strategy.position_avg_price) / (strategy.position_avg_price - longStop)) : 0
+shortRR = (not na(shortTarget) and not na(shortStop)) ? ((strategy.position_avg_price - shortTarget) / (shortStop - strategy.position_avg_price)) : 0
 
 validLongRR = longRR >= minRiskReward
 validShortRR = shortRR >= minRiskReward
