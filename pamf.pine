@@ -17,6 +17,9 @@ groupDebug = "Debug"
 groupSwing = "Swing Engine"
 groupAtr = "ATR Engine"
 groupEntry = "Entry Engine"
+groupOB = "Order Block"
+groupBos = "BOS Engine"
+groupStrategy = "Strategy"
 
 //-----------------------------------------------------------------------------
 // INPUTS
@@ -31,9 +34,6 @@ atrSmooth = input.string("RMA", "ATR Smoothing", options=["RMA", "SMA", "EMA", "
 swingLength = input.int(5, "Swing Length", minval=2, maxval=20, group=groupSwing)
 showSwings = input.bool(true, "Show Swing Labels", group=groupSwing)
 
-groupBos = "BOS Engine"
-
-groupStrategy = "Strategy"
 
 bosBreakMethod = input.string(    "Close",    "Break Confirmation",    options=["Close", "Wick"],    group=groupBos)
 bosAtrFilter = input.bool(true, "Require ATR Impulse", group=groupBos)
@@ -45,6 +45,9 @@ enableLong = input.bool(true, "Enable Long", group=groupEntry)
 enableShort = input.bool(true, "Enable Short", group=groupEntry)
 
 useImpulseFilter = input.bool(true, "Require Impulse Candle", group=groupEntry)
+
+showOrderBlocks = input.bool(true, "Show Order Blocks", group=groupOB)
+maxOrderBlocks = input.int(     20,     "Maximum Blocks",     minval=5,     maxval=100,     group=groupOB)
 
 //-----------------------------------------------------------------------------
 // CONSTANTS
@@ -93,6 +96,15 @@ var bool paLongSignal = false
 var bool paShortSignal = false
 
 var string paEntryReason = ""
+
+var box bullOB = na
+var box bearOB = na
+
+var float bullOBHigh = na
+var float bullOBLow = na
+
+var float bearOBHigh = na
+var float bearOBLow = na
 
 //-----------------------------------------------------------------------------
 // STRUCTURE STATE
@@ -276,6 +288,73 @@ if enableShort
         if valid
             paShortSignal := true
             paEntryReason := "Bear BOS"
+
+//-----------------------------------------------------------------------------
+// LAST OPPOSITE CANDLE
+//-----------------------------------------------------------------------------
+lastBearHigh = ta.valuewhen(paBearish, high, 0)
+lastBearLow = ta.valuewhen(paBearish, low, 0)
+lastBearBar = ta.valuewhen(paBearish, bar_index, 0)
+
+lastBullHigh = ta.valuewhen(paBullish, high, 0)
+lastBullLow = ta.valuewhen(paBullish, low, 0)
+lastBullBar = ta.valuewhen(paBullish, bar_index, 0)
+
+//-----------------------------------------------------------------------------
+// ORDER BLOCK ENGINE
+//-----------------------------------------------------------------------------
+if paBullBos
+
+    bullOBHigh := lastBearHigh
+    bullOBLow := lastBearLow
+
+    if not na(bullOB)
+        box.delete(bullOB)
+
+    bullOB := box.new(
+         lastBearBar,
+         bullOBHigh,
+         bar_index,
+         bullOBLow,
+         bgcolor=color.new(color.green,85),
+         border_color=color.green)
+
+if paBearBos
+
+    bearOBHigh := lastBullHigh
+    bearOBLow := lastBullLow
+
+    if not na(bearOB)
+        box.delete(bearOB)
+
+    bearOB := box.new(
+         lastBullBar,
+         bearOBHigh,
+         bar_index,
+         bearOBLow,
+         bgcolor=color.new(color.red,85),
+         border_color=color.red)
+
+if not na(bullOB)
+    box.set_right(bullOB, bar_index)
+
+if not na(bearOB)
+    box.set_right(bearOB, bar_index)
+
+if not na(bullOB)
+
+    if close < bullOBLow
+
+        box.delete(bullOB)
+
+        bullOB := na
+if not na(bearOB)
+
+    if close > bearOBHigh
+
+        box.delete(bearOB)
+
+        bearOB := na
 
 
 //-----------------------------------------------------------------------------
