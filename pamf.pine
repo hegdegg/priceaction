@@ -556,8 +556,8 @@ shortCooldown = (bar_index - lastShortBar) < cooldownBars
 //-----------------------------------------------------------------------------
 // CONFLUENCE SCORING ENGINE
 //-----------------------------------------------------------------------------
-longConfluence = 0
-shortConfluence = 0
+longConfluence = 0.0
+shortConfluence = 0.0
 
 // BOS Signal
 if paBullBos
