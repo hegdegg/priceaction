@@ -103,7 +103,7 @@ pullbackAtr = input.float(1.0, "Pullback ATR", step=0.25, group=groupMarket)
 //-----------------------------------------------------------------------------
 
 useConfluenceScore = input.bool(true, "Enable Confluence Scoring", group=groupFilters)
-minConfluenceScore = input.int(2, "Min Confluence Score", minval=1, maxval=5, group=groupFilters)
+minConfluenceScore = input.int(3, "Min Confluence Score", minval=1, maxval=5, group=groupFilters)
 requireTrendAlignment = input.bool(true, "Require Trend Alignment", group=groupFilters)
 requireOBMitigation = input.bool(false, "Require OB Mitigation", group=groupFilters)
 cooldownBars = input.int(3, "Cooldown Bars After Entry", minval=1, maxval=20, group=groupFilters)
@@ -351,8 +351,8 @@ if paNewSwingLow
 //-----------------------------------------------------------------------------
 // BOS CONDITIONS
 //-----------------------------------------------------------------------------
-bullBreak = false
-bearBreak = false
+var bool bullBreak = false
+var bool bearBreak = false
 
 if not na(paMarketState)
     bullBreak := bosBreakMethod == "Close" ? ta.crossover(close, paMarketState) : high > paMarketState
@@ -554,6 +554,14 @@ longCooldown = (bar_index - lastLongBar) < cooldownBars
 shortCooldown = (bar_index - lastShortBar) < cooldownBars
 
 //-----------------------------------------------------------------------------
+// TRADE LEVELS INITIALIZATION
+//-----------------------------------------------------------------------------
+var float longStop = na
+var float longTarget = na
+var float shortStop = na
+var float shortTarget = na
+
+//-----------------------------------------------------------------------------
 // CONFLUENCE SCORING ENGINE
 //-----------------------------------------------------------------------------
 longConfluence = 0.0
@@ -620,11 +628,8 @@ paShortSignal := false
 paEntryReason := ""
 
 // Risk/Reward Validation
-longRR = (not na(longTarget) and not na(longStop)) ? ((longTarget - strategy.position_avg_price) / (strategy.position_avg_price - longStop)) : 0
-shortRR = (not na(shortTarget) and not na(shortStop)) ? ((strategy.position_avg_price - shortTarget) / (shortStop - strategy.position_avg_price)) : 0
-
-validLongRR = longRR >= minRiskReward
-validShortRR = shortRR >= minRiskReward
+longRR = strategy.position_size > 0 and not na(longTarget) and not na(longStop) ? ((longTarget - strategy.position_avg_price) / math.abs(strategy.position_avg_price - longStop)) : 0
+shortRR = strategy.position_size < 0 and not na(shortTarget) and not na(shortStop) ? ((math.abs(strategy.position_avg_price - shortTarget)) / math.abs(shortStop - strategy.position_avg_price)) : 0
 
 if enableLong and not longCooldown
 
@@ -757,11 +762,13 @@ if longCondition
 if shortCondition
     strategy.entry("Short", strategy.short)
 
-longStop = strategy.position_avg_price - paAtr * slAtrMultiplier
-longTarget = strategy.position_avg_price + paAtr * tpAtrMultiplier
+if strategy.position_size > 0
+    longStop := strategy.position_avg_price - paAtr * slAtrMultiplier
+    longTarget := strategy.position_avg_price + paAtr * tpAtrMultiplier
 
-shortStop = strategy.position_avg_price + paAtr * slAtrMultiplier
-shortTarget = strategy.position_avg_price - paAtr * tpAtrMultiplier
+if strategy.position_size < 0
+    shortStop := strategy.position_avg_price + paAtr * slAtrMultiplier
+    shortTarget := strategy.position_avg_price - paAtr * tpAtrMultiplier
 
 strategy.exit("Long Exit", from_entry="Long", stop=longStop, limit=longTarget)
 
@@ -947,16 +954,24 @@ plotshape(paBullDisplacement, style=shape.square, color=color.green, size=size.t
 plotshape(paBearDisplacement, style=shape.square, color=color.red, size=size.tiny, title="Bear Displacement")
 
 // FVG Zones
+var box bullFVGBox = na
+var box bearFVGBox = na
+
 if showFVG and detectFVG
     if bullFVG
-        bullFVGBox = box.new(bar_index - 1, bullFVGTop, bar_index + 5, bullFVGBottom, bgcolor=color.new(color.green, 90), border_color=na)
+        if not na(bullFVGBox)
+            box.delete(bullFVGBox)
+        bullFVGBox := box.new(bar_index - 1, bullFVGTop, bar_index + 5, bullFVGBottom, bgcolor=color.new(color.green, 90), border_color=na)
     if bearFVG
-        bearFVGBox = box.new(bar_index - 1, bearFVGTop, bar_index + 5, bearFVGBottom, bgcolor=color.new(color.red, 90), border_color=na)
+        if not na(bearFVGBox)
+            box.delete(bearFVGBox)
+        bearFVGBox := box.new(bar_index - 1, bearFVGTop, bar_index + 5, bearFVGBottom, bgcolor=color.new(color.red, 90), border_color=na)
 
 // Liquidity Zones
-if showLiquidity and detectLiquidity
-    plot(recentHigh, title="Recent High", color=color.new(color.blue, 50), linewidth=1, style=plot.style_circles)
-    plot(recentLow, title="Recent Low", color=color.new(color.orange, 50), linewidth=1, style=plot.style_circles)
+plotRecentHigh = (showLiquidity and detectLiquidity) ? recentHigh : na
+plotRecentLow = (showLiquidity and detectLiquidity) ? recentLow : na
+plot(plotRecentHigh, title="Recent High", color=color.new(color.blue, 50), linewidth=1, style=plot.style_circles)
+plot(plotRecentLow, title="Recent Low", color=color.new(color.orange, 50), linewidth=1, style=plot.style_circles)
 
 // 3-Bar Patterns
 plotshape(bullPin, style=shape.triangleup, color=color.lime, size=size.small, title="Bull Pin", location=location.belowbar)
