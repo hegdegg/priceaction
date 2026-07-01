@@ -128,15 +128,6 @@ var bool paShortSignal = false
 
 var string paEntryReason = ""
 
-var box bullOB = na
-var box bearOB = na
-
-var float bullOBHigh = na
-var float bullOBLow = na
-
-var float bearOBHigh = na
-var float bearOBLow = na
-
 var string paLastStructure = "None"
 
 //-----------------------------------------------------------------------------
@@ -282,6 +273,109 @@ if not na(paProtectedLow)
 
         paProtectedLow := na
 
+
+//-----------------------------------------------------------------------------
+// ORDER BLOCK ENGINE
+//-----------------------------------------------------------------------------
+
+showOB = input.bool(true, "Show Order Blocks", group=groupOB)
+deleteMitigatedOB = input.bool(true, "Delete Mitigated", group=groupOB)
+extendOB = input.int(200, "Extend Bars", minval=20, group=groupOB)
+
+var box bullOB = na
+var box bearOB = na
+
+var float bullOBHigh = na
+var float bullOBLow = na
+
+var float bearOBHigh = na
+var float bearOBLow = na
+
+var int bullOBBar = na
+var int bearOBBar = na
+
+
+if paBullBos
+
+    int obIndex = bar_index - 1
+
+    while obIndex > 5
+
+        if close[bar_index - obIndex] < open[bar_index - obIndex]
+
+            bullOBHigh := high[bar_index - obIndex]
+            bullOBLow := low[bar_index - obIndex]
+            bullOBBar := obIndex
+
+            break
+
+        obIndex -= 1
+if paBullBos
+
+    for i = 1 to 10
+
+        if close[i] < open[i]
+
+            bullOBHigh := high[i]
+            bullOBLow := low[i]
+            break
+
+if paBearBos
+
+    for i = 1 to 10
+
+        if close[i] > open[i]
+
+            bearOBHigh := high[i]
+            bearOBLow := low[i]
+            break
+
+if showOB and paBullBos
+
+    if not na(bullOB)
+        box.delete(bullOB)
+
+    bullOB := box.new(
+         left = bar_index,
+         top = bullOBHigh,
+         right = bar_index + extendOB,
+         bottom = bullOBLow,
+         bgcolor = color.new(color.green,85),
+         border_color = color.green)
+
+if showOB and paBearBos
+
+    if not na(bearOB)
+        box.delete(bearOB)
+
+    bearOB := box.new(
+         left = bar_index,
+         top = bearOBHigh,
+         right = bar_index + extendOB,
+         bottom = bearOBLow,
+         bgcolor = color.new(color.red,85),
+         border_color = color.red)
+
+if not na(bullOB)
+
+    if low <= bullOBHigh and low >= bullOBLow
+
+        if deleteMitigatedOB
+            box.delete(bullOB)
+            bullOB := na
+
+if not na(bearOB)
+
+    if high >= bearOBLow and high <= bearOBHigh
+
+        if deleteMitigatedOB
+            box.delete(bearOB)
+            bearOB := na
+
+
+
+
+
 //-----------------------------------------------------------------------------
 // MARKET STATE ENGINE
 //-----------------------------------------------------------------------------
@@ -426,6 +520,85 @@ if not na(bearOB)
 
         bearOB := na
 
+//-----------------------------------------------------------------------------
+// ORDER BLOCK DETECTION
+//-----------------------------------------------------------------------------
+
+if paBullDisplacement
+
+    int found = na
+
+    for i = 1 to 6
+
+        if close[i] < open[i]
+
+            found := i
+            break
+
+    if not na(found)
+
+        bullOBTop := open[found]
+        bullOBBottom := low[found]
+
+        if not na(bullOB)
+            box.delete(bullOB)
+
+        bullOB := box.new(
+             left = bar_index - found,
+             right = bar_index + 100,
+             top = bullOBTop,
+             bottom = bullOBBottom,
+             bgcolor = color.new(color.green,85),
+             border_color = color.green)
+
+if paBearDisplacement
+
+    int found = na
+
+    for i = 1 to 6
+
+        if close[i] > open[i]
+
+            found := i
+            break
+
+    if not na(found)
+
+        bearOBTop := high[found]
+        bearOBBottom := open[found]
+
+        if not na(bearOB)
+            box.delete(bearOB)
+
+        bearOB := box.new(
+             left = bar_index - found,
+             right = bar_index + 100,
+             top = bearOBTop,
+             bottom = bearOBBottom,
+             bgcolor = color.new(color.red,85),
+             border_color = color.red)
+
+//-----------------------------------------------------------------------------
+// ORDER BLOCK MITIGATION
+//-----------------------------------------------------------------------------
+
+if not na(bullOB)
+
+    if low <= bullOBTop
+
+        box.set_right(bullOB, bar_index)
+
+        bullOB := na
+
+if not na(bearOB)
+
+    if high >= bearOBBottom
+
+        box.set_right(bearOB, bar_index)
+
+        bearOB := na
+
+        
 //-----------------------------------------------------------------------------
 // DISPLACEMENT ENGINE
 //-----------------------------------------------------------------------------
